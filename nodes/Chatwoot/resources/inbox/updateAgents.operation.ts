@@ -1,6 +1,6 @@
 import type { INodeProperties } from 'n8n-workflow';
 
-export const addAgentOperation: INodeProperties[] = [
+export const updateAgentsOperation: INodeProperties[] = [
   {
     displayName: 'Inbox ID',
     name: 'inboxId',
@@ -10,7 +10,7 @@ export const addAgentOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['inbox'],
-        operation: ['addAgent'],
+        operation: ['updateAgents'],
       },
     },
     description: 'ID of the inbox',
@@ -21,14 +21,14 @@ export const addAgentOperation: INodeProperties[] = [
     type: 'string',
     required: true,
     default: '',
+    placeholder: '1, 2, 3',
     displayOptions: {
       show: {
         resource: ['inbox'],
-        operation: ['addAgent'],
+        operation: ['updateAgents'],
       },
     },
-    placeholder: '1, 2',
     description:
-      'Comma-separated list of agent (user) IDs to add to the inbox. Existing members are kept.',
+      'Comma-separated list of ALL agent (user) IDs that should be members of the inbox. Agents not listed are removed.',
   },
 ];

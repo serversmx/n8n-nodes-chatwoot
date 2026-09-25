@@ -37,8 +37,9 @@ export type ChatwootContext =
  * - applicationV2: chatwootApi,         {baseUrl}/api/v2/accounts/{accountId}{endpoint}, api_access_token
  * - platform:      chatwootPlatformApi, {baseUrl}/platform/api/v1{endpoint},             api_access_token
  * - public:        chatwootPublicApi,   {baseUrl}/public/api/v1{endpoint},                no auth
+ * - user:          chatwootApi,         {baseUrl}/api/v1{endpoint} (not account-scoped, e.g. /profile), api_access_token
  */
-export type ChatwootApi = 'application' | 'applicationV2' | 'platform' | 'public';
+export type ChatwootApi = 'application' | 'applicationV2' | 'platform' | 'public' | 'user';
 
 /** Query-string array serialization (same values as IHttpRequestOptions.arrayFormat). */
 export type QueryArrayFormat = 'brackets' | 'indices' | 'repeat' | 'comma';
@@ -87,6 +88,7 @@ const API_CONFIG: Record<ChatwootApi, { credential: string; label: string; auth:
   applicationV2: { credential: 'chatwootApi', label: 'Chatwoot API', auth: true },
   platform: { credential: 'chatwootPlatformApi', label: 'Chatwoot Platform API', auth: true },
   public: { credential: 'chatwootPublicApi', label: 'Chatwoot Public API', auth: false },
+  user: { credential: 'chatwootApi', label: 'Chatwoot API', auth: true },
 };
 
 const BODYLESS_METHODS = new Set(['GET', 'HEAD']);
@@ -698,6 +700,9 @@ function buildApiUrl(
       return `${baseUrl}/platform/api/v1${endpoint}`;
     case 'public':
       return `${baseUrl}/public/api/v1${endpoint}`;
+    case 'user':
+      // Routes outside the account scope (e.g. /api/v1/profile) that use the same user token
+      return `${baseUrl}/api/v1${endpoint}`;
     default:
       return `${baseUrl}/api/v1/accounts/${credentials.accountId}${endpoint}`;
   }

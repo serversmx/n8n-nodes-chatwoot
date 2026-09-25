@@ -16,7 +16,8 @@ export const updateOperation: INodeProperties[] = [
         operation: ['update'],
       },
     },
-    description: 'Select the agent to update. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+    description:
+      'Select the agent to update. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
   },
   {
     displayName: 'Update Fields',
@@ -50,7 +51,26 @@ export const updateOperation: INodeProperties[] = [
         description: 'Role determines the permissions of the agent',
       },
       {
-        displayName: 'Availability Status',
+        displayName: 'Auto Offline',
+        name: 'auto_offline',
+        type: 'boolean',
+        default: true,
+        description: 'Whether to automatically set agent offline when inactive',
+      },
+      {
+        displayName: 'Availability',
+        name: 'availability',
+        type: 'options',
+        options: [
+          { name: 'Busy', value: 'busy' },
+          { name: 'Offline', value: 'offline' },
+          { name: 'Online', value: 'online' },
+        ],
+        default: 'online',
+        description: 'Availability of the agent in this account',
+      },
+      {
+        displayName: 'Availability Status (Deprecated)',
         name: 'availability_status',
         type: 'options',
         options: [
@@ -59,14 +79,16 @@ export const updateOperation: INodeProperties[] = [
           { name: 'Offline', value: 'offline' },
         ],
         default: 'available',
-        description: 'Availability status of the agent',
+        description:
+          'Deprecated: use Availability. Chatwoot ignores availability_status, so this value is sent as availability (Available = online). Ignored when Availability is set.',
       },
       {
-        displayName: 'Auto Offline',
-        name: 'auto_offline',
-        type: 'boolean',
-        default: true,
-        description: 'Whether to automatically set agent offline when inactive',
+        displayName: 'Custom Role ID',
+        name: 'custom_role_id',
+        type: 'number',
+        default: 0,
+        description:
+          'Enterprise only (custom_roles feature): ID of the custom role to assign; 0 removes it. Note: Chatwoot Enterprise clears the custom role on every agent update that does not send it, so set it again when updating an agent that has one.',
       },
     ],
   },

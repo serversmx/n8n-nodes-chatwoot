@@ -8,6 +8,7 @@ import type {
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import {
+  chatwootRequest,
   chatwootApiRequest,
   chatwootApiV2Request,
   chatwootApiRequestAllItems,
@@ -15,6 +16,7 @@ import {
   chatwootPlatformApiRequest,
   chatwootPublicApiRequest,
   getHttpStatus,
+  extractItems,
   validateId,
   parseJsonSafe,
   getAgents,
@@ -70,6 +72,16 @@ import { accountAgentBotOperations, accountAgentBotFields } from './resources/ac
 import { publicContactOperations, publicContactFields } from './resources/publicContact';
 import { publicConversationOperations, publicConversationFields } from './resources/publicConversation';
 import { publicMessageOperations, publicMessageFields } from './resources/publicMessage';
+
+// Execute helpers
+import {
+  buildInboxCreateBody,
+  buildInboxUpdateBody,
+  parseUserIds,
+  readInboxChannelInput,
+} from './resources/inbox/helpers';
+import { buildAccountUpdateBody } from './resources/account/helpers';
+import { buildAgentBody } from './resources/agent/helpers';
 
 export class Chatwoot implements INodeType {
   description: INodeTypeDescription = {
@@ -312,20 +324,23 @@ export class Chatwoot implements INodeType {
         // =====================================================================
         if (resource === 'account') {
           if (operation === 'get') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '');
+            responseData = await chatwootApiRequest.call(this, 'GET', '', {}, {}, { itemIndex: i });
           } else if (operation === 'update') {
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
-            const body: IDataObject = {};
+            const body = buildAccountUpdateBody(updateFields);
 
-            if (updateFields.name) body.name = updateFields.name;
-            if (updateFields.locale) body.locale = updateFields.locale;
-            if (updateFields.domain) body.domain = updateFields.domain;
-            if (updateFields.support_email) body.support_email = updateFields.support_email;
-            if (updateFields.auto_resolve_duration !== undefined) {
-              body.auto_resolve_duration = updateFields.auto_resolve_duration;
-            }
-
-            responseData = await chatwootApiRequest.call(this, 'PATCH', '', body);
+            responseData = await chatwootApiRequest.call(this, 'PATCH', '', body, {}, { itemIndex: i });
+          } else if (operation === 'getBrandedEmailLayout') {
+            responseData = await chatwootApiRequest.call(this, 'GET', '/branded_email_layout', {}, {}, {
+              itemIndex: i,
+            });
+          } else if (operation === 'updateBrandedEmailLayout') {
+            const layout = this.getNodeParameter('brandedEmailLayout', i, '') as string;
+            // Chatwoot removes the account layout when branded_email_layout is null
+            const body: IDataObject = { branded_email_layout: layout.trim() === '' ? null : layout };
+            responseData = await chatwootApiRequest.call(this, 'PATCH', '/branded_email_layout', body, {}, {
+              itemIndex: i,
+            });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -336,37 +351,35 @@ export class Chatwoot implements INodeType {
         // =====================================================================
         else if (resource === 'agent') {
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/agents');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/agents', {}, {}, { itemIndex: i });
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const email = this.getNodeParameter('email', i) as string;
             const role = this.getNodeParameter('role', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
-            const body: IDataObject = { name, email, role };
+            const body: IDataObject = { name, email, role, ...buildAgentBody(additionalFields, 'create') };
 
-            if (additionalFields.availability_status) {
-              body.availability_status = additionalFields.availability_status;
-            }
-            if (additionalFields.auto_offline !== undefined) {
-              body.auto_offline = additionalFields.auto_offline;
-            }
-
-            responseData = await chatwootApiRequest.call(this, 'POST', '/agents', body);
+            // Agent creation is throttled per day (rack-attack): retrying within seconds cannot help
+            responseData = await chatwootApiRequest.call(this, 'POST', '/agents', body, {}, {
+              itemIndex: i,
+              retry: false,
+            });
           } else if (operation === 'update') {
             const agentId = validateId(this.getNodeParameter('agentId', i), 'Agent ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
 
-            const body: IDataObject = {};
-            if (updateFields.name) body.name = updateFields.name;
-            if (updateFields.role) body.role = updateFields.role;
-            if (updateFields.availability_status) body.availability_status = updateFields.availability_status;
-            if (updateFields.auto_offline !== undefined) body.auto_offline = updateFields.auto_offline;
-
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/agents/${agentId}`, body);
+            const body = buildAgentBody(updateFields, 'update');
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/agents/${agentId}`, body, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'delete') {
             const agentId = validateId(this.getNodeParameter('agentId', i), 'Agent ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/agents/${agentId}`);
+            // Agent deletion is throttled per day (rack-attack): retrying within seconds cannot help
+            await chatwootApiRequest.call(this, 'DELETE', `/agents/${agentId}`, {}, {}, {
+              itemIndex: i,
+              retry: false,
+            });
             responseData = { success: true, id: agentId };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
@@ -378,10 +391,10 @@ export class Chatwoot implements INodeType {
         // =====================================================================
         else if (resource === 'team') {
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/teams');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/teams', {}, {}, { itemIndex: i });
           } else if (operation === 'get') {
             const teamId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/teams/${teamId}`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/teams/${teamId}`, {}, {}, { itemIndex: i });
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
@@ -392,7 +405,7 @@ export class Chatwoot implements INodeType {
               body.allow_auto_assign = additionalFields.allow_auto_assign;
             }
 
-            responseData = await chatwootApiRequest.call(this, 'POST', '/teams', body);
+            responseData = await chatwootApiRequest.call(this, 'POST', '/teams', body, {}, { itemIndex: i });
           } else if (operation === 'update') {
             const teamId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
@@ -402,35 +415,44 @@ export class Chatwoot implements INodeType {
             if (updateFields.description) body.description = updateFields.description;
             if (updateFields.allow_auto_assign !== undefined) body.allow_auto_assign = updateFields.allow_auto_assign;
 
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/teams/${teamId}`, body);
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/teams/${teamId}`, body, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'delete') {
             const teamId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/teams/${teamId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/teams/${teamId}`, {}, {}, { itemIndex: i });
             responseData = { success: true, id: teamId };
           } else if (operation === 'addAgent') {
             const teamId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
-            const userIdsStr = this.getNodeParameter('userIds', i) as string;
-            const userIds = userIdsStr.split(',').map((id) => parseInt(id.trim(), 10));
+            const userIds = parseUserIds(this.getNodeParameter('userIds', i));
 
             const body: IDataObject = { user_ids: userIds };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/teams/${teamId}/team_members`, body);
+            responseData = await chatwootApiRequest.call(this, 'POST', `/teams/${teamId}/team_members`, body, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'deleteAgent') {
             const teamId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
-            const userIdsStr = this.getNodeParameter('userIds', i) as string;
-            const userIds = userIdsStr.split(',').map((id) => parseInt(id.trim(), 10));
+            const userIds = parseUserIds(this.getNodeParameter('userIds', i));
 
             const body: IDataObject = { user_ids: userIds };
-            responseData = await chatwootApiRequest.call(this, 'DELETE', `/teams/${teamId}/team_members`, body);
+            // Chatwoot answers `head :ok`, so report what was removed
+            await chatwootApiRequest.call(this, 'DELETE', `/teams/${teamId}/team_members`, body, {}, {
+              itemIndex: i,
+            });
+            responseData = { success: true, teamId, userIds };
           } else if (operation === 'getMembers') {
             const teamId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/teams/${teamId}/team_members`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/teams/${teamId}/team_members`, {}, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'updateAgents') {
             const teamId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
-            const userIdsStr = this.getNodeParameter('userIds', i) as string;
-            const userIds = userIdsStr.split(',').map((id) => parseInt(id.trim(), 10));
+            const userIds = parseUserIds(this.getNodeParameter('userIds', i));
 
             const body: IDataObject = { user_ids: userIds };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/teams/${teamId}/team_members`, body);
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/teams/${teamId}/team_members`, body, {}, {
+              itemIndex: i,
+            });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -441,59 +463,123 @@ export class Chatwoot implements INodeType {
         // =====================================================================
         else if (resource === 'inbox') {
           if (operation === 'getAll') {
-            const response = await chatwootApiRequest.call(this, 'GET', '/inboxes');
+            const response = await chatwootApiRequest.call(this, 'GET', '/inboxes', {}, {}, { itemIndex: i });
             responseData = ((response as IDataObject).payload || response) as IDataObject[];
           } else if (operation === 'get') {
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/inboxes/${inboxId}`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/inboxes/${inboxId}`, {}, {}, { itemIndex: i });
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const channelType = this.getNodeParameter('channelType', i) as string;
+            const channelInput = readInboxChannelInput(this, i, channelType);
+            const channelSettings = ['api', 'email', 'web_widget'].includes(channelType)
+              ? (this.getNodeParameter('channelSettings', i, {}) as IDataObject)
+              : {};
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
-            const body: IDataObject = { name };
-            const channel: IDataObject = { type: channelType };
-
-            if (channelType === 'web_widget') {
-              if (additionalFields.website_url) channel.website_url = additionalFields.website_url;
-              if (additionalFields.welcome_title) channel.welcome_title = additionalFields.welcome_title;
-              if (additionalFields.welcome_tagline) channel.welcome_tagline = additionalFields.welcome_tagline;
-            }
-
-            body.channel = channel;
-            responseData = await chatwootApiRequest.call(this, 'POST', '/inboxes', body);
+            const body = buildInboxCreateBody(name, channelInput, channelSettings, additionalFields);
+            responseData = await chatwootApiRequest.call(this, 'POST', '/inboxes', body, {}, { itemIndex: i });
           } else if (operation === 'update') {
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
+            const channelSettings = this.getNodeParameter('channelSettings', i, {}) as IDataObject;
 
-            const body: IDataObject = { ...updateFields };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/inboxes/${inboxId}`, body);
-          } else if (operation === 'addAgent') {
+            const body = buildInboxUpdateBody(updateFields, channelSettings);
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/inboxes/${inboxId}`, body, {}, {
+              itemIndex: i,
+            });
+          } else if (operation === 'delete') {
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
-            const userIdsStr = this.getNodeParameter('userIds', i) as string;
-            const userIds = userIdsStr.split(',').map((id) => parseInt(id.trim(), 10));
+            // Chatwoot queues the deletion and answers { message }
+            const response = (await chatwootApiRequest.call(this, 'DELETE', `/inboxes/${inboxId}`, {}, {}, {
+              itemIndex: i,
+            })) as IDataObject;
+            responseData = { success: true, id: inboxId, ...(response.message ? { message: response.message } : {}) };
+          } else if (operation === 'addAgent' || operation === 'updateAgents') {
+            // Collection routes: POST (add) / PATCH (replace) /inbox_members with { inbox_id, user_ids }
+            const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
+            const userIds = parseUserIds(this.getNodeParameter('userIds', i));
 
-            const body: IDataObject = { user_ids: userIds };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/inbox_members/${inboxId}`, body);
+            const body: IDataObject = { inbox_id: inboxId, user_ids: userIds };
+            const response = await chatwootApiRequest.call(
+              this,
+              operation === 'addAgent' ? 'POST' : 'PATCH',
+              '/inbox_members',
+              body,
+              {},
+              { itemIndex: i },
+            );
+            responseData = extractItems(response, 'payload');
           } else if (operation === 'deleteAgent') {
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
-            const userIdsStr = this.getNodeParameter('userIds', i) as string;
-            const userIds = userIdsStr.split(',').map((id) => parseInt(id.trim(), 10));
+            const userIds = parseUserIds(this.getNodeParameter('userIds', i));
 
-            const body: IDataObject = { user_ids: userIds };
-            responseData = await chatwootApiRequest.call(this, 'DELETE', `/inbox_members/${inboxId}`, body);
+            const body: IDataObject = { inbox_id: inboxId, user_ids: userIds };
+            // Chatwoot answers `head :ok`, so report what was removed
+            await chatwootApiRequest.call(this, 'DELETE', '/inbox_members', body, {}, { itemIndex: i });
+            responseData = { success: true, inboxId, userIds };
           } else if (operation === 'getMembers') {
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/inbox_members/${inboxId}`);
+            const response = await chatwootApiRequest.call(this, 'GET', `/inbox_members/${inboxId}`, {}, {}, {
+              itemIndex: i,
+            });
+            responseData = extractItems(response, 'payload');
           } else if (operation === 'getAgentBot') {
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/inboxes/${inboxId}/agent_bot`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/inboxes/${inboxId}/agent_bot`, {}, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'setAgentBot') {
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
             const agentBotId = this.getNodeParameter('agentBotId', i) as number;
 
             const body: IDataObject = { agent_bot: agentBotId || null };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/inboxes/${inboxId}/set_agent_bot`, body);
+            // Chatwoot answers `head :ok`, so report the new assignment
+            await chatwootApiRequest.call(this, 'POST', `/inboxes/${inboxId}/set_agent_bot`, body, {}, {
+              itemIndex: i,
+            });
+            responseData = { success: true, inboxId, agentBotId: agentBotId || null };
+          } else if (operation === 'resetSecret') {
+            const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
+            responseData = await chatwootApiRequest.call(this, 'POST', `/inboxes/${inboxId}/reset_secret`, {}, {}, {
+              itemIndex: i,
+            });
+          } else if (operation === 'rotateHmacToken') {
+            const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
+            responseData = await chatwootApiRequest.call(
+              this,
+              'POST',
+              `/inboxes/${inboxId}/rotate_hmac_token`,
+              {},
+              {},
+              { itemIndex: i },
+            );
+          } else if (operation === 'getMessageTemplates') {
+            const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
+            const templateName = (this.getNodeParameter('templateName', i, '') as string).trim();
+
+            const qs: IDataObject = {};
+            if (templateName) qs.name = templateName;
+            const response = await chatwootApiRequest.call(
+              this,
+              'GET',
+              `/inboxes/${inboxId}/message_templates`,
+              {},
+              qs,
+              { itemIndex: i },
+            );
+            responseData = extractItems(response, 'payload');
+          } else if (operation === 'syncTemplates') {
+            const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
+            const response = (await chatwootApiRequest.call(
+              this,
+              'POST',
+              `/inboxes/${inboxId}/sync_templates`,
+              {},
+              {},
+              { itemIndex: i },
+            )) as IDataObject;
+            responseData = { success: true, inboxId, ...(response.message ? { message: response.message } : {}) };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -624,23 +710,43 @@ export class Chatwoot implements INodeType {
         // WEBHOOK
         // =====================================================================
         else if (resource === 'webhook') {
+          // Chatwoot wraps webhooks as { payload: { webhooks: [...] } } / { payload: { webhook: {...} } }
+          const unwrapWebhook = (response: IDataObject | IDataObject[]): IDataObject =>
+            (((response as IDataObject).payload as IDataObject | undefined)?.webhook as IDataObject) ??
+            (response as IDataObject);
+          const webhookBody = (fields: IDataObject): IDataObject => {
+            const body: IDataObject = {};
+            if (fields.url !== undefined) body.url = fields.url;
+            if (fields.subscriptions !== undefined) body.subscriptions = fields.subscriptions;
+            if (fields.name !== undefined) body.name = fields.name;
+            // '' (no inbox selected) removes the inbox association
+            if (fields.inbox_id !== undefined) body.inbox_id = fields.inbox_id === '' ? null : fields.inbox_id;
+            return body;
+          };
+
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/webhooks');
+            const response = await chatwootApiRequest.call(this, 'GET', '/webhooks', {}, {}, { itemIndex: i });
+            responseData = extractItems(response, 'payload.webhooks');
           } else if (operation === 'create') {
             const url = this.getNodeParameter('url', i) as string;
             const subscriptions = this.getNodeParameter('subscriptions', i) as string[];
+            const additionalFields = this.getNodeParameter('additionalFields', i, {}) as IDataObject;
 
-            const body: IDataObject = { url, subscriptions };
-            responseData = await chatwootApiRequest.call(this, 'POST', '/webhooks', body);
+            const body = webhookBody({ ...additionalFields, url, subscriptions });
+            const response = await chatwootApiRequest.call(this, 'POST', '/webhooks', body, {}, { itemIndex: i });
+            responseData = unwrapWebhook(response);
           } else if (operation === 'update') {
             const webhookId = validateId(this.getNodeParameter('webhookId', i), 'Webhook ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
 
-            const body: IDataObject = { ...updateFields };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/webhooks/${webhookId}`, body);
+            const body = webhookBody(updateFields);
+            const response = await chatwootApiRequest.call(this, 'PATCH', `/webhooks/${webhookId}`, body, {}, {
+              itemIndex: i,
+            });
+            responseData = unwrapWebhook(response);
           } else if (operation === 'delete') {
             const webhookId = validateId(this.getNodeParameter('webhookId', i), 'Webhook ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/webhooks/${webhookId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/webhooks/${webhookId}`, {}, {}, { itemIndex: i });
             responseData = { success: true, id: webhookId };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
@@ -1038,30 +1144,60 @@ export class Chatwoot implements INodeType {
         // AGENT BOT
         // =====================================================================
         else if (resource === 'agentBot') {
+          const agentBotBody = (fields: IDataObject, clearable: boolean): IDataObject => {
+            const body: IDataObject = {};
+            for (const key of ['name', 'description', 'outgoing_url', 'avatar_url']) {
+              const value = fields[key];
+              if (value === undefined || value === null) continue;
+              // On update an empty description / outgoing URL clears it (as before v0.9.0);
+              // an empty name or avatar URL is never sent
+              if (value === '' && !(clearable && (key === 'description' || key === 'outgoing_url'))) {
+                continue;
+              }
+              body[key] = value;
+            }
+            if (fields.bot_config !== undefined && fields.bot_config !== '') {
+              body.bot_config = parseJsonSafe(fields.bot_config, 'bot_config');
+            }
+            return body;
+          };
+
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/agent_bots');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/agent_bots', {}, {}, { itemIndex: i });
           } else if (operation === 'get') {
             const agentBotId = validateId(this.getNodeParameter('agentBotId', i), 'Agent Bot ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/agent_bots/${agentBotId}`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/agent_bots/${agentBotId}`, {}, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
-            const body: IDataObject = { name };
-            if (additionalFields.description) body.description = additionalFields.description;
-            if (additionalFields.outgoing_url) body.outgoing_url = additionalFields.outgoing_url;
-
-            responseData = await chatwootApiRequest.call(this, 'POST', '/agent_bots', body);
+            const body: IDataObject = { ...agentBotBody(additionalFields, false), name };
+            responseData = await chatwootApiRequest.call(this, 'POST', '/agent_bots', body, {}, { itemIndex: i });
           } else if (operation === 'update') {
             const agentBotId = validateId(this.getNodeParameter('agentBotId', i), 'Agent Bot ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
 
-            const body: IDataObject = { ...updateFields };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/agent_bots/${agentBotId}`, body);
+            const body = agentBotBody(updateFields, true);
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/agent_bots/${agentBotId}`, body, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'delete') {
             const agentBotId = validateId(this.getNodeParameter('agentBotId', i), 'Agent Bot ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/agent_bots/${agentBotId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/agent_bots/${agentBotId}`, {}, {}, { itemIndex: i });
             responseData = { success: true, id: agentBotId };
+          } else if (operation === 'deleteAvatar') {
+            const agentBotId = validateId(this.getNodeParameter('agentBotId', i), 'Agent Bot ID');
+            responseData = await chatwootApiRequest.call(this, 'DELETE', `/agent_bots/${agentBotId}/avatar`, {}, {}, {
+              itemIndex: i,
+            });
+          } else if (operation === 'resetAccessToken' || operation === 'resetSecret') {
+            const agentBotId = validateId(this.getNodeParameter('agentBotId', i), 'Agent Bot ID');
+            const action = operation === 'resetAccessToken' ? 'reset_access_token' : 'reset_secret';
+            responseData = await chatwootApiRequest.call(this, 'POST', `/agent_bots/${agentBotId}/${action}`, {}, {}, {
+              itemIndex: i,
+            });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1229,19 +1365,55 @@ export class Chatwoot implements INodeType {
         // PROFILE
         // =====================================================================
         else if (resource === 'profile') {
+          // /api/v1/profile is NOT account-scoped ('user' API root). Availability and auto-offline are
+          // stored per account, so they go to their own endpoints with the credential's account_id.
+          const profileRequest = async (method: 'GET' | 'PUT' | 'POST', endpoint: string, body: IDataObject = {}) =>
+            await chatwootRequest.call(this, method, endpoint, body, {}, { api: 'user', itemIndex: i });
+          const credentialAccountId = async () => {
+            const credentials = await this.getCredentials('chatwootApi', i);
+            return Number(credentials.accountId);
+          };
+
           if (operation === 'fetch') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/profile');
+            responseData = await profileRequest('GET', '/profile');
           } else if (operation === 'update') {
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
-            const body: IDataObject = {};
-            if (updateFields.name) body.name = updateFields.name;
-            if (updateFields.email) body.email = updateFields.email;
-            if (updateFields.availability) body.availability = updateFields.availability;
-            if (updateFields.auto_offline !== undefined) body.auto_offline = updateFields.auto_offline;
-            responseData = await chatwootApiRequest.call(this, 'PUT', '/profile', body);
+
+            const profile: IDataObject = {};
+            for (const key of ['name', 'display_name', 'email', 'message_signature', 'phone_number']) {
+              if (updateFields[key] === undefined) continue;
+              // name and email cannot be blank; the other fields are cleared with an empty value
+              if (updateFields[key] === '' && (key === 'name' || key === 'email')) continue;
+              profile[key] = updateFields[key];
+            }
+            const hasAvailability = updateFields.availability !== undefined && updateFields.availability !== '';
+            const hasAutoOffline = updateFields.auto_offline !== undefined;
+            if (Object.keys(profile).length === 0 && !hasAvailability && !hasAutoOffline) {
+              throw new NodeOperationError(this.getNode(), 'Add at least one field to update', { itemIndex: i });
+            }
+
+            // Each endpoint answers the full profile; the last response is the up-to-date one
+            let profileResponse: IDataObject | IDataObject[] = {};
+            if (Object.keys(profile).length > 0) {
+              profileResponse = await profileRequest('PUT', '/profile', { profile });
+            }
+            if (hasAvailability) {
+              profileResponse = await profileRequest('POST', '/profile/availability', {
+                profile: { account_id: await credentialAccountId(), availability: updateFields.availability },
+              });
+            }
+            if (hasAutoOffline) {
+              profileResponse = await profileRequest('POST', '/profile/auto_offline', {
+                profile: { account_id: await credentialAccountId(), auto_offline: updateFields.auto_offline },
+              });
+            }
+            responseData = profileResponse;
           } else if (operation === 'availability') {
             const availability = this.getNodeParameter('availability', i) as string;
-            responseData = await chatwootApiRequest.call(this, 'POST', '/profile/availability', { availability });
+            const accountId = await credentialAccountId();
+            responseData = await profileRequest('POST', '/profile/availability', {
+              profile: { account_id: accountId, availability },
+            });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1325,23 +1497,46 @@ export class Chatwoot implements INodeType {
         // =====================================================================
         else if (resource === 'integration') {
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/integrations/apps');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/integrations/apps', {}, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'createHook') {
             const appId = this.getNodeParameter('appId', i) as string;
-            const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
+            const inboxId = this.getNodeParameter('inboxId', i, 0) as number | string;
             const settings = parseJsonSafe(this.getNodeParameter('settings', i), 'settings');
 
-            const body: IDataObject = { app_id: appId, inbox_id: inboxId, settings };
-            responseData = await chatwootApiRequest.call(this, 'POST', '/integrations/hooks', body);
+            // Only inbox-level apps (Dialogflow) need an inbox; account-level apps must not send one
+            const hook: IDataObject = { app_id: appId, settings };
+            if (inboxId !== 0 && inboxId !== '' && inboxId !== null && inboxId !== undefined) {
+              hook.inbox_id = validateId(inboxId, 'Inbox ID');
+            }
+            responseData = await chatwootApiRequest.call(this, 'POST', '/integrations/hooks', { hook }, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'updateHook') {
             const hookId = validateId(this.getNodeParameter('hookId', i), 'Hook ID');
-            const settings = parseJsonSafe(this.getNodeParameter('settings', i), 'settings');
+            const settings = parseJsonSafe(this.getNodeParameter('settings', i), 'settings') as IDataObject;
+            const updateFields = this.getNodeParameter('updateFields', i, {}) as IDataObject;
 
-            const body: IDataObject = { settings };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/integrations/hooks/${hookId}`, body);
+            // An empty settings object would wipe the stored settings (or fail the app's schema)
+            const hook: IDataObject = {};
+            if (settings && typeof settings === 'object' && Object.keys(settings).length > 0) {
+              hook.settings = settings;
+            }
+            if (updateFields.status) hook.status = updateFields.status;
+            if (Object.keys(hook).length === 0) {
+              throw new NodeOperationError(this.getNode(), 'Set Settings or a Status to update the hook', {
+                itemIndex: i,
+              });
+            }
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/integrations/hooks/${hookId}`, { hook }, {}, {
+              itemIndex: i,
+            });
           } else if (operation === 'deleteHook') {
             const hookId = validateId(this.getNodeParameter('hookId', i), 'Hook ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/integrations/hooks/${hookId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/integrations/hooks/${hookId}`, {}, {}, {
+              itemIndex: i,
+            });
             responseData = { success: true, id: hookId };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });

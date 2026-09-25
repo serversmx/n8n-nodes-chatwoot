@@ -234,7 +234,10 @@ describe('empty responses (Chatwoot `head :ok`)', () => {
       params: { resource: 'team', operation: 'deleteAgent', teamId: 5, userIds: '1' },
       responses: [{ method: 'DELETE', url: '/teams/5/team_members' }],
     });
-    expect(output[0]).toEqual([{ json: {}, pairedItem: { item: 0 } }]);
+    // The branch reports what was removed instead of the empty `head :ok` body
+    expect(output[0]).toEqual([
+      { json: { success: true, teamId: 5, userIds: [1] }, pairedItem: { item: 0 } },
+    ]);
   });
 });
 
@@ -1265,7 +1268,9 @@ describe('Chatwoot node execute()', () => {
     expect(calls[0].url).toBe(`${APP}/teams/5/team_members`);
     expect(calls[0].body).toEqual({ user_ids: [1, 2] });
     expect(calls[0].headers['Content-Type']).toBe('application/json');
-    expect(output[0]).toEqual([]);
+    expect(output[0].map((item) => item.json)).toEqual([
+      { success: true, teamId: 5, userIds: [1, 2] },
+    ]);
   });
 
   it('conversationParticipant remove and platform accountUser delete send their bodies', async () => {

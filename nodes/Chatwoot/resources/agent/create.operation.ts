@@ -70,7 +70,26 @@ export const createOperation: INodeProperties[] = [
     },
     options: [
       {
-        displayName: 'Availability Status',
+        displayName: 'Auto Offline',
+        name: 'auto_offline',
+        type: 'boolean',
+        default: true,
+        description: 'Whether to automatically set agent offline when inactive',
+      },
+      {
+        displayName: 'Availability',
+        name: 'availability',
+        type: 'options',
+        options: [
+          { name: 'Busy', value: 'busy' },
+          { name: 'Offline', value: 'offline' },
+          { name: 'Online', value: 'online' },
+        ],
+        default: 'online',
+        description: 'Initial availability of the agent. Chatwoot defaults to online.',
+      },
+      {
+        displayName: 'Availability Status (Deprecated)',
         name: 'availability_status',
         type: 'options',
         options: [
@@ -79,14 +98,16 @@ export const createOperation: INodeProperties[] = [
           { name: 'Offline', value: 'offline' },
         ],
         default: 'available',
-        description: 'Initial availability status of the agent',
+        description:
+          'Deprecated: use Availability. Chatwoot ignores availability_status, so this value is sent as availability (Available = online). Ignored when Availability is set.',
       },
       {
-        displayName: 'Auto Offline',
-        name: 'auto_offline',
-        type: 'boolean',
-        default: true,
-        description: 'Whether to automatically set agent offline when inactive',
+        displayName: 'Custom Role ID',
+        name: 'custom_role_id',
+        type: 'number',
+        default: 0,
+        description:
+          'Enterprise only (custom_roles feature): ID of the custom role to assign. 0 = none.',
       },
     ],
   },

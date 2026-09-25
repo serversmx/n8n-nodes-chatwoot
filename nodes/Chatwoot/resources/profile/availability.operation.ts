@@ -18,6 +18,6 @@ export const availabilityOperation: INodeProperties[] = [
         operation: ['availability'],
       },
     },
-    description: 'Set availability status',
+    description: 'Availability of the token owner in the account of the credential',
   },
 ];
