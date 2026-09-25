@@ -19,13 +19,15 @@ export const customAttributeOperations: INodeProperties = {
     {
       name: 'Create',
       value: 'create',
-      description: 'Create a new custom attribute definition',
+      description:
+        'Create a new custom attribute definition (Chatwoot 4.14+ requires an administrator token; agent tokens get 401)',
       action: 'Create a custom attribute',
     },
     {
       name: 'Delete',
       value: 'delete',
-      description: 'Delete a custom attribute definition',
+      description:
+        'Delete a custom attribute definition (Chatwoot 4.14+ requires an administrator token; agent tokens get 401)',
       action: 'Delete a custom attribute',
     },
     {
@@ -37,13 +39,15 @@ export const customAttributeOperations: INodeProperties = {
     {
       name: 'Get Many',
       value: 'getAll',
-      description: 'Get all custom attribute definitions',
+      description:
+        'Get all custom attribute definitions of a model (contact, conversation or company)',
       action: 'Get all custom attributes',
     },
     {
       name: 'Update',
       value: 'update',
-      description: 'Update a custom attribute definition',
+      description:
+        'Update a custom attribute definition (Chatwoot 4.14+ requires an administrator token; agent tokens get 401)',
       action: 'Update a custom attribute',
     },
   ],

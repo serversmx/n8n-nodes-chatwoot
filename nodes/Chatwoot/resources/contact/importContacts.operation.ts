@@ -14,6 +14,6 @@ export const importContactsOperation: INodeProperties[] = [
       },
     },
     description:
-      'Name of the binary property containing the CSV file to import. Use a "Read Binary File" or "HTTP Request" node to provide the file.',
+      'Name of the input binary property that holds the CSV file (e.g. from "Read/Write Files from Disk", "HTTP Request" or "Convert to File"). Header columns: name, email, phone_number, identifier, company_name ("company" before Chatwoot 4.14) and city; every column except name, email, phone_number, identifier and labels is also stored as a custom attribute. Recent Chatwoot versions also read a labels column (comma-separated, existing labels only; rows with unknown labels are rejected). Existing contacts are matched by identifier, email or phone number and updated. Chatwoot processes the file about a minute later and emails the result to administrators. Requires an administrator token.',
   },
 ];

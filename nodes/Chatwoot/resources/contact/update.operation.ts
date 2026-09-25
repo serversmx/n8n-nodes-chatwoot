@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { IDENTIFIER_DESCRIPTION } from './create.operation';
 
 export const updateOperation: INodeProperties[] = [
   {
@@ -29,25 +30,44 @@ export const updateOperation: INodeProperties[] = [
     },
     options: [
       {
+        displayName: 'Additional Attributes',
+        name: 'additional_attributes',
+        type: 'json',
+        default: '{}',
+        description:
+          'Standard profile attributes as a JSON object, merged into the existing ones (keys not sent are kept), e.g. {"company_name": "Acme", "city": "Monterrey", "country_code": "MX", "description": "VIP customer"}',
+      },
+      {
         displayName: 'Avatar URL',
         name: 'avatar_url',
         type: 'string',
         default: '',
-        description: 'URL of the contact avatar image',
+        description:
+          'Public URL of an image that Chatwoot downloads in the background and uses as the avatar',
       },
       {
         displayName: 'Blocked',
         name: 'blocked',
         type: 'boolean',
         default: false,
-        description: 'Whether the contact is blocked',
+        description:
+          'Whether the contact is blocked (Chatwoot opens new conversations of blocked contacts as resolved and skips agent notifications)',
+      },
+      {
+        displayName: 'Company ID',
+        name: 'company_id',
+        type: 'number',
+        default: 0,
+        description:
+          'ID of the company to link the contact to. Requires Chatwoot 4.15+ Enterprise with the Companies feature enabled; ignored otherwise.',
       },
       {
         displayName: 'Custom Attributes',
         name: 'custom_attributes',
         type: 'json',
         default: '{}',
-        description: 'Custom attributes as a JSON object',
+        description:
+          'Custom attributes as a JSON object, merged into the existing ones (keys not sent are kept)',
       },
       {
         displayName: 'Email',
@@ -55,14 +75,14 @@ export const updateOperation: INodeProperties[] = [
         type: 'string',
         placeholder: 'name@email.com',
         default: '',
-        description: 'Email address of the contact',
+        description: 'Email address of the contact (unique per account)',
       },
       {
         displayName: 'Identifier',
         name: 'identifier',
         type: 'string',
         default: '',
-        description: 'External identifier for the contact',
+        description: IDENTIFIER_DESCRIPTION,
       },
       {
         displayName: 'Name',
@@ -75,9 +95,10 @@ export const updateOperation: INodeProperties[] = [
         displayName: 'Phone Number',
         name: 'phone_number',
         type: 'string',
-        placeholder: '+1234567890',
+        placeholder: '+5215512345678',
         default: '',
-        description: 'Phone number with country code',
+        description:
+          'Phone number in E.164 format: "+" followed by country code and number, no spaces (unique per account)',
       },
     ],
   },

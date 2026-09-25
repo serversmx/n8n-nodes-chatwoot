@@ -16,7 +16,8 @@ export const updateOperation: INodeProperties[] = [
         operation: ['update'],
       },
     },
-    description: 'Select the label to update. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+    description:
+      'Label to update. Choose from the list, or specify the label ID or its exact title using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
   },
   {
     displayName: 'Update Fields',
