@@ -5,7 +5,6 @@ export const getAllOperation: INodeProperties[] = [
     displayName: 'Account ID',
     name: 'accountId',
     type: 'number',
-    required: true,
     default: 0,
     displayOptions: {
       show: {
@@ -13,6 +12,7 @@ export const getAllOperation: INodeProperties[] = [
         operation: ['getAll'],
       },
     },
-    description: 'ID of the account',
+    description:
+      'Only return the bots whose account_id is this account (filtered by the node, Chatwoot has no account filter here). Use 0 to return every bot of this Platform App, including global bots.',
   },
 ];

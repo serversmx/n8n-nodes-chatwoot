@@ -13,7 +13,7 @@ export const resolveOperation: INodeProperties[] = [
         operation: ['resolve'],
       },
     },
-    description: 'The source_id of the contact',
+    description: 'The source_id of the contact in this inbox (returned by Public Contact > Create)',
   },
   {
     displayName: 'Conversation ID',
@@ -27,6 +27,6 @@ export const resolveOperation: INodeProperties[] = [
         operation: ['resolve'],
       },
     },
-    description: 'ID of the conversation to toggle resolved status',
+    description: 'ID of the conversation to resolve',
   },
 ];

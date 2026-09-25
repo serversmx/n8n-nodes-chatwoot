@@ -33,14 +33,23 @@ export const updateOperation: INodeProperties[] = [
         name: 'custom_attributes',
         type: 'json',
         default: '{}',
-        description: 'Custom attributes as JSON object',
+        description:
+          'Custom attributes as JSON object. Merged into the existing custom attributes (keys not sent are kept).',
+      },
+      {
+        displayName: 'Display Name',
+        name: 'display_name',
+        type: 'string',
+        default: '',
+        description: 'Name shown to customers instead of the full name',
       },
       {
         displayName: 'Email',
         name: 'email',
         type: 'string',
         default: '',
-        description: 'Email address of the user',
+        description:
+          'Email address of the user. Changed immediately, without a confirmation email.',
       },
       {
         displayName: 'Name',
@@ -57,7 +66,8 @@ export const updateOperation: INodeProperties[] = [
           password: true,
         },
         default: '',
-        description: 'New password for the user',
+        description:
+          'New password for the user: at least 6 characters with an uppercase letter, a lowercase letter, a number and a special character',
       },
     ],
   },

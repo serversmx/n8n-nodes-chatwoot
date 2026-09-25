@@ -13,7 +13,7 @@ export const getOperation: INodeProperties[] = [
         operation: ['get'],
       },
     },
-    description: 'The source_id of the contact',
+    description: 'The source_id of the contact in this inbox (returned by Public Contact > Create)',
   },
   {
     displayName: 'Conversation ID',

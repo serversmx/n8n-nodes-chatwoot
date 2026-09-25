@@ -14,7 +14,8 @@ export const createOperation: INodeProperties[] = [
         operation: ['create'],
       },
     },
-    description: 'Email address of the user',
+    description:
+      'Email address of the user. If a user with this email already exists, Chatwoot returns that user unchanged and gives this Platform App access to it.',
   },
   {
     displayName: 'Name',
@@ -51,6 +52,13 @@ export const createOperation: INodeProperties[] = [
         description: 'Custom attributes as JSON object',
       },
       {
+        displayName: 'Display Name',
+        name: 'display_name',
+        type: 'string',
+        default: '',
+        description: 'Name shown to customers instead of the full name',
+      },
+      {
         displayName: 'Password',
         name: 'password',
         type: 'string',
@@ -58,7 +66,8 @@ export const createOperation: INodeProperties[] = [
           password: true,
         },
         default: '',
-        description: 'Password for the user',
+        description:
+          'Password for the user. Needed to create a new user (Chatwoot rejects new users without one): at least 6 characters with an uppercase letter, a lowercase letter, a number and a special character.',
       },
     ],
   },
