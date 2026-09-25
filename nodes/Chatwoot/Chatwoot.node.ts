@@ -29,6 +29,16 @@ import {
   getCategories,
   getIntegrations,
 } from './GenericFunctions';
+import {
+  assertCaptainAssignmentSupported,
+  assertValidPriority,
+  mapPriority,
+  normalizeConversationFilterPayload,
+  parseIdList,
+  parseStringList,
+  toUnixSeconds,
+} from './resources/conversation/helpers';
+import { MAX_MESSAGE_ATTACHMENTS, buildMessageCreateParts } from './resources/message/helpers';
 
 // Application API Resource imports
 import { accountOperations, accountFields } from './resources/account';
@@ -849,27 +859,38 @@ export class Chatwoot implements INodeType {
         else if (resource === 'conversation') {
           if (operation === 'get') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/conversations/${conversationId}`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/conversations/${conversationId}`, {}, {}, { itemIndex: i });
           } else if (operation === 'getAll') {
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
             const filters = this.getNodeParameter('filters', i) as IDataObject;
 
-            const qs: IDataObject = {};
-            if (filters.status && filters.status !== 'all') qs.status = filters.status;
+            // Chatwoot only returns Open conversations when `status` is missing: send 'all' explicitly
+            const qs: IDataObject = { status: filters.status || 'all' };
             if (filters.assignee_type && filters.assignee_type !== 'all') qs.assignee_type = filters.assignee_type;
+            if (filters.conversation_type) qs.conversation_type = filters.conversation_type;
             if (filters.inbox_id) qs.inbox_id = filters.inbox_id;
             if (filters.team_id) qs.team_id = filters.team_id;
-            if (filters.labels) qs.labels = (filters.labels as string).split(',').map((l) => l.trim());
+            const labels = parseStringList(filters.labels);
+            if (labels.length > 0) qs.labels = labels;
             if (filters.q) qs.q = filters.q;
+            if (filters.sort_by) qs.sort_by = filters.sort_by;
+            if (filters.source_id) qs.source_id = String(filters.source_id).trim();
+            if (filters.updated_within) qs.updated_within = filters.updated_within;
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/conversations', {}, qs, 'payload');
+            // GET /conversations answers { data: { meta, payload } }; the page size comes from the server
+            // (CONVERSATION_RESULTS_PER_PAGE), so it is detected from the first page
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            if (qs.updated_within) {
+              // With updated_within Chatwoot ignores `page` and returns every match at once: one request
+              const result = (await chatwootApiRequest.call(this, 'GET', '/conversations', {}, qs, { itemIndex: i })) as IDataObject;
+              const payload = (result.data as IDataObject | undefined)?.payload;
+              const conversations = (Array.isArray(payload) ? payload : []) as IDataObject[];
+              responseData = limit === undefined ? conversations : conversations.slice(0, limit);
             } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/conversations', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
+              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/conversations', {}, qs, 'data.payload', {
+                limit,
+                itemIndex: i,
+              });
             }
           } else if (operation === 'updateStatus') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
@@ -877,42 +898,79 @@ export class Chatwoot implements INodeType {
 
             const body: IDataObject = { status };
             if (status === 'snoozed') {
-              const snoozedUntil = this.getNodeParameter('snoozed_until', i, '') as string;
-              if (snoozedUntil) {
-                body.snoozed_until = Math.floor(new Date(snoozedUntil).getTime() / 1000);
-              }
+              const snoozedUntil = toUnixSeconds(this.getNodeParameter('snoozed_until', i, ''), 'Snooze Until');
+              if (snoozedUntil !== undefined) body.snoozed_until = snoozedUntil;
             }
 
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/toggle_status`, body);
+            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/toggle_status`, body, {}, { itemIndex: i });
           } else if (operation === 'assign') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const assignmentType = this.getNodeParameter('assignmentType', i) as string;
 
-            const body: IDataObject = {};
+            let body: IDataObject;
+            let assigneeId: number | undefined;
             if (assignmentType === 'agent') {
-              body.assignee_id = validateId(this.getNodeParameter('assigneeId', i), 'Agent ID');
+              assigneeId = validateId(this.getNodeParameter('assigneeId', i), 'Agent ID');
+              body = { assignee_id: assigneeId };
+            } else if (assignmentType === 'agentBot') {
+              assigneeId = validateId(this.getNodeParameter('agentBotId', i), 'Agent Bot ID');
+              body = { assignee_id: assigneeId, assignee_type: 'AgentBot' };
+            } else if (assignmentType === 'captainAssistant') {
+              const requested = Number(this.getNodeParameter('captainAssistantId', i, 0)) || 0;
+              assigneeId = await assertCaptainAssignmentSupported.call(this, conversationId, requested, i);
+              body = { assignee_id: assigneeId, assignee_type: 'Captain::Assistant' };
             } else if (assignmentType === 'team') {
-              body.team_id = validateId(this.getNodeParameter('teamId', i), 'Team ID');
+              assigneeId = validateId(this.getNodeParameter('teamId', i), 'Team ID');
+              body = { team_id: assigneeId };
             } else if (assignmentType === 'unassign') {
-              body.assignee_id = null;
+              body = { assignee_id: null };
+            } else if (assignmentType === 'unassignTeam') {
+              // team_id 0 removes the team (4.18 uses teams.find for positive IDs only)
+              body = { team_id: 0 };
+            } else {
+              throw new NodeOperationError(this.getNode(), `Assignment type "${assignmentType}" not supported`, { itemIndex: i });
             }
 
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/assignments`, body);
+            const result = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/assignments`, body, {}, { itemIndex: i });
+            // The endpoint renders the new assignee (agent, agent bot, Captain assistant or team) or `null`
+            const assigned = !Array.isArray(result) && Object.keys(result).length > 0;
+            if (assignmentType === 'unassign') {
+              responseData = { success: true, id: conversationId, assignee: null };
+            } else if (assignmentType === 'unassignTeam') {
+              responseData = { success: true, id: conversationId, team: null };
+            } else if (assigned) {
+              responseData = result;
+            } else {
+              const reasons: Record<string, string> = {
+                agent: `Agent ${assigneeId} is not a user of this account; Chatwoot removed the current assignee instead`,
+                agentBot: `Agent bot ${assigneeId} is not available to this account; the conversation was not changed`,
+                captainAssistant: `Captain assistant ${assigneeId} was not assigned: the Captain feature is not enabled for this account`,
+                team: `Team ${assigneeId} was not found; Chatwoot removed the current team instead`,
+              };
+              throw new NodeOperationError(this.getNode(), reasons[assignmentType], { itemIndex: i });
+            }
           } else if (operation === 'addLabels') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const labels = this.getNodeParameter('labels', i) as string[];
 
             const body: IDataObject = { labels };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/labels`, body);
+            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/labels`, body, {}, { itemIndex: i });
           } else if (operation === 'create') {
-            const sourceId = this.getNodeParameter('sourceId', i) as string;
+            const sourceId = String(this.getNodeParameter('sourceId', i, '') ?? '').trim();
             const inboxId = validateId(this.getNodeParameter('inboxId', i), 'Inbox ID');
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
-            const body: IDataObject = {
-              source_id: sourceId,
-              inbox_id: inboxId,
-            };
+            if (!sourceId && !additionalFields.contact_id) {
+              throw new NodeOperationError(this.getNode(), 'Source ID is required unless Contact ID is set', {
+                itemIndex: i,
+                description:
+                  'With a Contact ID, Chatwoot finds or creates the contact inbox and generates the source ID. Without one, it looks the contact inbox up by Source ID.',
+              });
+            }
+
+            const body: IDataObject = { inbox_id: inboxId };
+            // An empty source_id would stop Chatwoot from generating one for the contact
+            if (sourceId) body.source_id = sourceId;
             if (additionalFields.contact_id) body.contact_id = additionalFields.contact_id;
             if (additionalFields.status) body.status = additionalFields.status;
             if (additionalFields.assignee_id) body.assignee_id = additionalFields.assignee_id;
@@ -920,99 +978,165 @@ export class Chatwoot implements INodeType {
             if (additionalFields.custom_attributes) {
               body.custom_attributes = parseJsonSafe(additionalFields.custom_attributes, 'custom_attributes');
             }
+            if (additionalFields.additional_attributes) {
+              body.additional_attributes = parseJsonSafe(additionalFields.additional_attributes, 'additional_attributes');
+            }
+            // ConversationBuilder assigns snoozed_until to the datetime column as-is: send ISO 8601
+            const snoozedUntil = toUnixSeconds(additionalFields.snoozed_until, 'Snoozed Until');
+            if (snoozedUntil !== undefined) body.snoozed_until = new Date(snoozedUntil * 1000).toISOString();
 
-            responseData = await chatwootApiRequest.call(this, 'POST', '/conversations', body);
+            const message: IDataObject = {};
+            if (additionalFields.message_content) message.content = additionalFields.message_content;
+            if (additionalFields.message_template_params) {
+              const templateParams = parseJsonSafe(additionalFields.message_template_params, 'Initial Message Template Params');
+              if (templateParams && typeof templateParams === 'object' && Object.keys(templateParams).length > 0) {
+                message.template_params = templateParams;
+              }
+            }
+            if (Object.keys(message).length > 0) body.message = message;
+
+            responseData = await chatwootApiRequest.call(this, 'POST', '/conversations', body, {}, { itemIndex: i });
           } else if (operation === 'togglePriority') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            const priority = this.getNodeParameter('priority', i) as string;
+            const priority = mapPriority(this.getNodeParameter('priority', i));
+            assertValidPriority(this.getNode(), i, priority);
 
-            const body: IDataObject = { priority };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/toggle_priority`, body);
+            await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/toggle_priority`, { priority }, {}, { itemIndex: i });
+            responseData = { success: true, id: conversationId, priority };
           } else if (operation === 'update') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
 
+            // PATCH /conversations/:id only permits priority (and sla_policy_id on Enterprise with SLA)
             const body: IDataObject = {};
-            if (updateFields.priority) body.priority = updateFields.priority;
-            if (updateFields.assignee_id) body.assignee_id = updateFields.assignee_id;
-            if (updateFields.team_id) body.team_id = updateFields.team_id;
-            if (updateFields.status) body.status = updateFields.status;
+            if (updateFields.priority !== undefined) {
+              body.priority = mapPriority(updateFields.priority);
+              assertValidPriority(this.getNode(), i, body.priority as string | null);
+            }
+            if (updateFields.sla_policy_id) body.sla_policy_id = validateId(updateFields.sla_policy_id, 'SLA Policy ID');
 
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/conversations/${conversationId}`, body);
+            // Snoozing is only possible through toggle_status; the PATCH below then returns the final state
+            const snoozedUntil = toUnixSeconds(updateFields.snoozed_until, 'Snoozed Until');
+            if (snoozedUntil !== undefined) {
+              await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/toggle_status`, {
+                status: 'snoozed',
+                snoozed_until: snoozedUntil,
+              }, {}, { itemIndex: i });
+            }
+
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/conversations/${conversationId}`, body, {}, { itemIndex: i });
           } else if (operation === 'filter') {
             const filterPayload = this.getNodeParameter('filterPayload', i) as string;
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const options = this.getNodeParameter('options', i, {}) as IDataObject;
 
-            const body: IDataObject = { payload: parseJsonSafe(filterPayload, 'filter payload') };
+            const payload = normalizeConversationFilterPayload(this.getNode(), i, parseJsonSafe(filterPayload, 'filter payload'));
+            const qs: IDataObject = {};
+            if (options.sort_by) qs.sort_by = options.sort_by;
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'POST', '/conversations/filter', body, {}, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              const result = (await chatwootApiRequest.call(this, 'POST', '/conversations/filter', body)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
-            }
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            responseData = await chatwootApiRequestAllItems.call(this, 'POST', '/conversations/filter', { payload }, qs, 'payload', {
+              limit,
+              itemIndex: i,
+            });
           } else if (operation === 'updateCustomAttributes') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            const customAttributes = this.getNodeParameter('customAttributes', i) as string;
+            const customAttributes = parseJsonSafe(this.getNodeParameter('customAttributes', i), 'custom_attributes');
+            const merge = this.getNodeParameter('merge', i, true) as boolean;
 
-            // Chatwoot's PATCH /conversations/:id only permits `:priority` (see
-            // ConversationsController#permitted_update_params). Custom attributes
-            // must use the dedicated POST /conversations/:id/custom_attributes
-            // endpoint with `attribute_key: null` to set all keys at once.
-            const body: IDataObject = {
-              custom_attributes: parseJsonSafe(customAttributes, 'custom_attributes'),
-              attribute_key: null,
-            };
+            if (!customAttributes || typeof customAttributes !== 'object' || Array.isArray(customAttributes)) {
+              throw new NodeOperationError(this.getNode(), 'Custom Attributes must be a JSON object', { itemIndex: i });
+            }
 
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/custom_attributes`, body);
+            // Chatwoot's PATCH /conversations/:id does not accept custom attributes: they use the dedicated
+            // POST /conversations/:id/custom_attributes endpoint. It replaces the whole hash unless
+            // `merge` is true (Chatwoot 4.17+; older versions ignore the flag).
+            const body: IDataObject = { custom_attributes: customAttributes as IDataObject };
+            if (merge) body.merge = true;
+
+            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/custom_attributes`, body, {}, { itemIndex: i });
+          } else if (operation === 'deleteCustomAttributes') {
+            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+            const keys = parseStringList(this.getNodeParameter('attributeKeys', i));
+            if (keys.length === 0) {
+              throw new NodeOperationError(this.getNode(), 'Attribute Keys must list at least one custom attribute key', { itemIndex: i });
+            }
+
+            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/destroy_custom_attributes`, {
+              custom_attributes: keys,
+            }, {}, { itemIndex: i });
           } else if (operation === 'listLabels') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/conversations/${conversationId}/labels`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/conversations/${conversationId}/labels`, {}, {}, { itemIndex: i });
           } else if (operation === 'getMeta') {
             const filters = this.getNodeParameter('filters', i, {}) as IDataObject;
             const qs: IDataObject = {};
 
             if (filters.status) qs.status = filters.status;
             if (filters.inbox_id) qs.inbox_id = filters.inbox_id;
-            if (filters.assignee_type) qs.assignee_type = filters.assignee_type;
+            if (filters.team_id) qs.team_id = filters.team_id;
+            const labels = parseStringList(filters.labels);
+            if (labels.length > 0) qs.labels = labels;
 
-            responseData = await chatwootApiRequest.call(this, 'GET', '/conversations/meta', {}, qs);
+            responseData = await chatwootApiRequest.call(this, 'GET', '/conversations/meta', {}, qs, { itemIndex: i });
+          } else if (operation === 'getUnreadCounts') {
+            const result = (await chatwootApiRequest.call(this, 'GET', '/conversations/unread_counts', {}, {}, { itemIndex: i })) as IDataObject;
+            responseData = (result.payload as IDataObject) ?? result;
+          } else if (operation === 'getAttachments') {
+            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            // { meta: { total_count }, payload: [...] }, 100 attachments per page
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', `/conversations/${conversationId}/attachments`, {}, {}, 'payload', {
+              limit,
+              pageSize: 100,
+              itemIndex: i,
+            });
+          } else if (operation === 'markAsRead') {
+            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/update_last_seen`, {}, {}, { itemIndex: i });
+          } else if (operation === 'markAsUnread') {
+            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/unread`, {}, {}, { itemIndex: i });
           } else if (operation === 'mute') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/mute`);
+            await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/mute`, {}, {}, { itemIndex: i });
+            responseData = { success: true, id: conversationId, muted: true };
           } else if (operation === 'unmute') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/unmute`);
+            await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/unmute`, {}, {}, { itemIndex: i });
+            responseData = { success: true, id: conversationId, muted: false };
           } else if (operation === 'delete') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/conversations/${conversationId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/conversations/${conversationId}`, {}, {}, { itemIndex: i });
             responseData = { success: true, id: conversationId };
           } else if (operation === 'search') {
             const query = this.getNodeParameter('query', i) as string;
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-            const qs2: IDataObject = { q: query };
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/conversations/search', {}, qs2, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs2.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/conversations/search', {}, qs2)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
-            }
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/conversations/search', {}, { q: query }, 'payload', {
+              limit,
+              itemIndex: i,
+            });
           } else if (operation === 'transcript') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const email = this.getNodeParameter('email', i) as string;
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/transcript`, { email });
+            // 429 here means the account's daily email quota is used up: retrying cannot help
+            await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/transcript`, { email }, {}, {
+              itemIndex: i,
+              retry: false,
+            });
+            responseData = { success: true, id: conversationId, email };
           } else if (operation === 'toggleTyping') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const typingStatus = this.getNodeParameter('typingStatus', i) as string;
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/toggle_typing_status`, {
-              typing_status: typingStatus,
-            });
+            const isPrivate = this.getNodeParameter('isPrivate', i, false) as boolean;
+
+            const body: IDataObject = { typing_status: typingStatus };
+            if (isPrivate) body.is_private = true;
+            await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/toggle_typing_status`, body, {}, { itemIndex: i });
+            responseData = { success: true, id: conversationId, typingStatus, isPrivate };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1024,53 +1148,96 @@ export class Chatwoot implements INodeType {
         else if (resource === 'message') {
           if (operation === 'create') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            const content = this.getNodeParameter('content', i) as string;
+            const content = (this.getNodeParameter('content', i, '') as string) ?? '';
             const options = this.getNodeParameter('options', i) as IDataObject;
+            const parts = buildMessageCreateParts(options);
+            const endpoint = `/conversations/${conversationId}/messages`;
 
-            const body: IDataObject = { content };
-            if (options.message_type) body.message_type = options.message_type;
-            if (options.private !== undefined) body.private = options.private;
-            if (options.content_type) body.content_type = options.content_type;
-            if (options.content_attributes) {
-              try {
-                body.content_attributes = typeof options.content_attributes === 'string'
-                  ? JSON.parse(options.content_attributes as string)
-                  : options.content_attributes;
-              } catch {
-                body.content_attributes = options.content_attributes;
+            if (parts.binaryPropertyNames.length > 0) {
+              if (parts.binaryPropertyNames.length > MAX_MESSAGE_ATTACHMENTS) {
+                throw new NodeOperationError(
+                  this.getNode(),
+                  `Chatwoot accepts at most ${MAX_MESSAGE_ATTACHMENTS} attachments per message (got ${parts.binaryPropertyNames.length})`,
+                  { itemIndex: i },
+                );
               }
-            }
-            if (options.template_params) {
-              const tp = parseJsonSafe(options.template_params, 'template_params');
-              // Only include if it's a non-empty object
-              if (tp && typeof tp === 'object' && Object.keys(tp).length > 0) {
-                body.template_params = tp;
+              if (parts.templateParams) {
+                throw new NodeOperationError(this.getNode(), 'Template Params cannot be combined with attachments', {
+                  itemIndex: i,
+                  description: 'Send the WhatsApp template in its own message (a media header goes in processed_params.header.media_url).',
+                });
               }
-            }
+              // multipart/form-data: attachments[] per file, content_attributes as a JSON string
+              responseData = await chatwootMultipartRequest.call(this, 'POST', endpoint, i, {
+                fields: { content: content || undefined, ...parts.fields },
+                jsonFields: { content_attributes: parts.contentAttributes },
+                files: parts.binaryPropertyNames.map((binaryPropertyName) => ({
+                  fieldName: 'attachments[]',
+                  binaryPropertyName,
+                })),
+              });
+            } else {
+              const contentType = parts.fields.content_type as string | undefined;
+              if (!content && !parts.templateParams && !parts.contentAttributes && (!contentType || contentType === 'text')) {
+                throw new NodeOperationError(this.getNode(), 'Content is required unless the message has attachments', {
+                  itemIndex: i,
+                  description: 'Set Content, or add Attachments (Binary Properties), Template Params or a structured Content Type.',
+                });
+              }
+              const body: IDataObject = { content, ...parts.fields };
+              // Voice notes only apply to uploaded audio files
+              delete body.is_voice_message;
+              if (parts.contentAttributes) body.content_attributes = parts.contentAttributes;
+              if (parts.templateParams) body.template_params = parts.templateParams;
 
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/messages`, body);
+              responseData = await chatwootApiRequest.call(this, 'POST', endpoint, body, {}, { itemIndex: i });
+            }
           } else if (operation === 'getAll') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const options = this.getNodeParameter('options', i, {}) as IDataObject;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllMessages.call(this, conversationId);
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              responseData = await chatwootApiRequestAllMessages.call(this, conversationId, limit);
-            }
+            // Cursor pagination walks back from the newest message; the result is oldest first
+            responseData = await chatwootApiRequestAllMessages.call(this, conversationId, limit, {
+              itemIndex: i,
+              before: options.before ? validateId(options.before, 'Before Message ID') : undefined,
+              after: options.after ? validateId(options.after, 'After Message ID') : undefined,
+              qs: options.filter_internal_messages ? { filter_internal_messages: true } : undefined,
+            });
           } else if (operation === 'delete') {
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const messageId = validateId(this.getNodeParameter('messageId', i), 'Message ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/conversations/${conversationId}/messages/${messageId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/conversations/${conversationId}/messages/${messageId}`, {}, {}, { itemIndex: i });
             responseData = { success: true, id: messageId };
           } else if (operation === 'update') {
+            // Chatwoot only updates the delivery status (API inboxes; 403 otherwise). Content cannot be edited.
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
             const messageId = validateId(this.getNodeParameter('messageId', i), 'Message ID');
-            const content = this.getNodeParameter('content', i) as string;
+            const status = String(this.getNodeParameter('deliveryStatus', i, '') ?? '').trim();
+            if (!['sent', 'delivered', 'read', 'failed'].includes(status)) {
+              throw new NodeOperationError(
+                this.getNode(),
+                status ? `Status must be sent, delivered, read or failed (got "${status}")` : 'Select the delivery status to set',
+                {
+                  itemIndex: i,
+                  description:
+                    'Chatwoot cannot edit the content of a message: this operation only updates its delivery status (API inboxes). Workflows saved with the former "Content" field must select a status.',
+                },
+              );
+            }
 
-            const body: IDataObject = { content };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/conversations/${conversationId}/messages/${messageId}`, body);
+            const body: IDataObject = { status };
+            if (status === 'failed') {
+              const externalError = this.getNodeParameter('externalError', i, '') as string;
+              if (externalError) body.external_error = externalError;
+            }
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/conversations/${conversationId}/messages/${messageId}`, body, {}, { itemIndex: i });
+          } else if (operation === 'retry') {
+            // Renders the message; on 4.18+ a message that is not Failed is returned unchanged
+            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+            const messageId = validateId(this.getNodeParameter('messageId', i), 'Message ID');
+            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/messages/${messageId}/retry`, {}, {}, { itemIndex: i });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -2498,19 +2665,29 @@ export class Chatwoot implements INodeType {
         // CONVERSATION PARTICIPANT
         // =====================================================================
         else if (resource === 'conversationParticipant') {
+          const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+          const endpoint = `/conversations/${conversationId}/participants`;
           if (operation === 'getAll') {
-            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/conversations/${conversationId}/participants`);
+            responseData = await chatwootApiRequest.call(this, 'GET', endpoint, {}, {}, { itemIndex: i });
           } else if (operation === 'add') {
-            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            const userIdsStr = this.getNodeParameter('userIds', i) as string;
-            const userIds = userIdsStr.split(',').map((id) => parseInt(id.trim(), 10));
-            responseData = await chatwootApiRequest.call(this, 'POST', `/conversations/${conversationId}/participants`, { user_ids: userIds });
+            const userIds = parseIdList(this.getNodeParameter('userIds', i), 'User IDs');
+            if (userIds.length === 0) {
+              throw new NodeOperationError(this.getNode(), 'User IDs must list at least one agent ID', { itemIndex: i });
+            }
+            // Renders only the participants that were not there yet
+            responseData = await chatwootApiRequest.call(this, 'POST', endpoint, { user_ids: userIds }, {}, { itemIndex: i });
           } else if (operation === 'remove') {
-            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            const userIdsStr = this.getNodeParameter('userIds', i) as string;
-            const userIds = userIdsStr.split(',').map((id) => parseInt(id.trim(), 10));
-            responseData = await chatwootApiRequest.call(this, 'DELETE', `/conversations/${conversationId}/participants`, { user_ids: userIds });
+            const userIds = parseIdList(this.getNodeParameter('userIds', i), 'User IDs');
+            if (userIds.length === 0) {
+              throw new NodeOperationError(this.getNode(), 'User IDs must list at least one agent ID', { itemIndex: i });
+            }
+            // DELETE with a JSON body; Chatwoot answers `head :ok`
+            await chatwootApiRequest.call(this, 'DELETE', endpoint, { user_ids: userIds }, {}, { itemIndex: i });
+            responseData = { success: true, conversationId, userIds };
+          } else if (operation === 'replace') {
+            // PATCH adds the missing IDs, removes the others and renders the resulting participants
+            const userIds = parseIdList(this.getNodeParameter('userIds', i, ''), 'User IDs');
+            responseData = await chatwootApiRequest.call(this, 'PATCH', endpoint, { user_ids: userIds }, {}, { itemIndex: i });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -2622,51 +2799,43 @@ export class Chatwoot implements INodeType {
         // SEARCH (Global)
         // =====================================================================
         else if (resource === 'search') {
+          // Typed search endpoints answer { payload: { <type>: [...] } }, 15 results per page
+          const searchTypes: Record<string, string> = {
+            searchArticles: 'articles',
+            searchContacts: 'contacts',
+            searchConversations: 'conversations',
+            searchMessages: 'messages',
+          };
           if (operation === 'searchAll') {
             const query = this.getNodeParameter('query', i) as string;
-            responseData = await chatwootApiRequest.call(this, 'GET', '/search', {}, { q: query });
-          } else if (operation === 'searchConversations') {
+            responseData = await chatwootApiRequest.call(this, 'GET', '/search', {}, { q: query }, { itemIndex: i });
+          } else if (searchTypes[operation]) {
+            const searchType = searchTypes[operation];
             const query = this.getNodeParameter('query', i) as string;
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-            const qs: IDataObject = { q: query };
+            const filters = this.getNodeParameter('filters', i, {}) as IDataObject;
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/search/conversations', {}, qs, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/search/conversations', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
-            }
-          } else if (operation === 'searchContacts') {
-            const query = this.getNodeParameter('query', i) as string;
-            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
             const qs: IDataObject = { q: query };
-
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/search/contacts', {}, qs, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/search/contacts', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
+            const since = toUnixSeconds(filters.since, 'Since');
+            if (since !== undefined) qs.since = since;
+            const until = toUnixSeconds(filters.until, 'Until');
+            if (until !== undefined) qs.until = until;
+            if (filters.from) {
+              const from = String(filters.from).trim();
+              // Chatwoot silently ignores any other format
+              if (!/^(contact|agent):\d+$/.test(from)) {
+                throw new NodeOperationError(this.getNode(), `From must be "contact:ID" or "agent:ID" (got "${from}")`, { itemIndex: i });
+              }
+              qs.from = from;
             }
-          } else if (operation === 'searchMessages') {
-            const query = this.getNodeParameter('query', i) as string;
-            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-            const qs: IDataObject = { q: query };
+            if (filters.inbox_id) qs.inbox_id = filters.inbox_id;
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/search/messages', {}, qs, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/search/messages', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
-            }
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', `/search/${searchType}`, {}, qs, `payload.${searchType}`, {
+              limit,
+              pageSize: 15,
+              itemIndex: i,
+            });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }

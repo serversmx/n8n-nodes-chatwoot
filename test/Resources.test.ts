@@ -120,24 +120,24 @@ describe('Resource Operation Counts', () => {
     expect((contactNoteOperations.options as unknown[]).length).toBe(4);
   });
 
-  it('conversationParticipant should have 3 operations', () => {
-    expect((conversationParticipantOperations.options as unknown[]).length).toBe(3);
+  it('conversationParticipant should have 4 operations', () => {
+    expect((conversationParticipantOperations.options as unknown[]).length).toBe(4);
   });
 
   it('company should have 14 operations', () => {
     expect((companyOperations.options as unknown[]).length).toBe(14);
   });
 
-  it('search should have 4 operations', () => {
-    expect((searchOperations.options as unknown[]).length).toBe(4);
+  it('search should have 5 operations', () => {
+    expect((searchOperations.options as unknown[]).length).toBe(5);
   });
 
   it('slaPolicy should have 5 operations', () => {
     expect((slaPolicyOperations.options as unknown[]).length).toBe(5);
   });
 
-  it('conversation should have 18 operations', () => {
-    expect((conversationOperations.options as unknown[]).length).toBe(18);
+  it('conversation should have 23 operations', () => {
+    expect((conversationOperations.options as unknown[]).length).toBe(23);
   });
 
   it('contact should have 20 operations', () => {

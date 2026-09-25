@@ -63,6 +63,7 @@ export const updateStatusOperation: INodeProperties[] = [
         status: ['snoozed'],
       },
     },
-    description: 'When to unsnooze the conversation (required when status is snoozed)',
+    description:
+      'When to reopen the snoozed conversation. Leave empty to keep it snoozed until the contact replies (a new incoming message always reopens it).',
   },
 ];

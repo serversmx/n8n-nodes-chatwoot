@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { searchFiltersCollection } from './filters';
 
 export const searchMessagesOperation: INodeProperties[] = [
   {
@@ -8,7 +9,7 @@ export const searchMessagesOperation: INodeProperties[] = [
     required: true,
     default: '',
     displayOptions: { show: { resource: ['search'], operation: ['searchMessages'] } },
-    description: 'Search query for messages',
+    description: 'Text to find in message content. Chatwoot only searches messages from the last 3 months (90 days), newest first.',
   },
   {
     displayName: 'Return All',
@@ -27,4 +28,23 @@ export const searchMessagesOperation: INodeProperties[] = [
     displayOptions: { show: { resource: ['search'], operation: ['searchMessages'], returnAll: [false] } },
     description: 'Max number of results to return',
   },
+  searchFiltersCollection('searchMessages', 'creation time', [
+    {
+      displayName: 'From',
+      name: 'from',
+      type: 'string',
+      default: '',
+      placeholder: 'contact:42',
+      description:
+        'Only return messages sent by this sender: "contact:ID" or "agent:ID". Requires the Advanced Search feature (Chatwoot Enterprise/premium plans); ignored otherwise.',
+    },
+    {
+      displayName: 'Inbox ID',
+      name: 'inbox_id',
+      type: 'number',
+      default: 0,
+      description:
+        'Only return messages of this inbox. Requires the Advanced Search feature (Chatwoot Enterprise/premium plans); ignored otherwise.',
+    },
+  ]),
 ];

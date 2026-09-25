@@ -1,19 +1,19 @@
 import type { INodeProperties } from 'n8n-workflow';
 
-export const searchOperation: INodeProperties[] = [
+export const getAttachmentsOperation: INodeProperties[] = [
   {
-    displayName: 'Query',
-    name: 'query',
-    type: 'string',
+    displayName: 'Conversation ID',
+    name: 'conversationId',
+    type: 'number',
     required: true,
-    default: '',
+    default: 0,
     displayOptions: {
       show: {
         resource: ['conversation'],
-        operation: ['search'],
+        operation: ['getAttachments'],
       },
     },
-    description: 'Text to find in the incoming and outgoing messages of the conversations',
+    description: 'ID of the conversation',
   },
   {
     displayName: 'Return All',
@@ -23,7 +23,7 @@ export const searchOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['conversation'],
-        operation: ['search'],
+        operation: ['getAttachments'],
       },
     },
     description: 'Whether to return all results or only up to a given limit',
@@ -32,12 +32,14 @@ export const searchOperation: INodeProperties[] = [
     displayName: 'Limit',
     name: 'limit',
     type: 'number',
-    default: 25,
-    typeOptions: { minValue: 1 },
+    default: 50,
+    typeOptions: {
+      minValue: 1,
+    },
     displayOptions: {
       show: {
         resource: ['conversation'],
-        operation: ['search'],
+        operation: ['getAttachments'],
         returnAll: [false],
       },
     },

@@ -34,6 +34,6 @@ export const togglePriorityOperation: INodeProperties[] = [
         operation: ['togglePriority'],
       },
     },
-    description: 'Priority level to set',
+    description: 'Priority level to set. None clears the priority.',
   },
 ];
