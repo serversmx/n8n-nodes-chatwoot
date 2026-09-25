@@ -17,6 +17,6 @@ export const removeOperation: INodeProperties[] = [
     required: true,
     default: '',
     displayOptions: { show: { resource: ['conversationParticipant'], operation: ['remove'] } },
-    description: 'Comma-separated list of user IDs to remove from participants',
+    description: 'Comma-separated list of agent (user) IDs to remove from the participants. IDs that are not participants are ignored.',
   },
 ];

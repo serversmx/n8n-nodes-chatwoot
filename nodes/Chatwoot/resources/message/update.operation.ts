@@ -2,6 +2,19 @@ import type { INodeProperties } from 'n8n-workflow';
 
 export const updateOperation: INodeProperties[] = [
   {
+    displayName:
+      'Chatwoot does not allow editing message content. This operation updates the delivery status of a message in an API inbox (e.g. to mirror WhatsApp delivery or read receipts from Evolution); other inboxes answer 403.',
+    name: 'updateNotice',
+    type: 'notice',
+    default: '',
+    displayOptions: {
+      show: {
+        resource: ['message'],
+        operation: ['update'],
+      },
+    },
+  },
+  {
     displayName: 'Conversation ID',
     name: 'conversationId',
     type: 'number',
@@ -30,13 +43,19 @@ export const updateOperation: INodeProperties[] = [
     description: 'ID of the message to update',
   },
   {
-    displayName: 'Content',
-    name: 'content',
-    type: 'string',
-    typeOptions: {
-      rows: 4,
-    },
-    required: true,
+    displayName: 'Status',
+    name: 'deliveryStatus',
+    type: 'options',
+    options: [
+      { name: 'Sent', value: 'sent' },
+      { name: 'Delivered', value: 'delivered' },
+      { name: 'Read', value: 'read' },
+      { name: 'Failed', value: 'failed' },
+    ],
+    // No preselected status: workflows saved when this operation sent "Content" (which Chatwoot always
+    // ignored) must fail with an explanation instead of silently marking their messages as delivered.
+    // Not `required`, because n8n refuses to run a whole workflow with an empty required parameter.
+    // eslint-disable-next-line n8n-nodes-base/node-param-default-wrong-for-options
     default: '',
     displayOptions: {
       show: {
@@ -44,6 +63,21 @@ export const updateOperation: INodeProperties[] = [
         operation: ['update'],
       },
     },
-    description: 'New message content',
+    description:
+      'New delivery status (must be selected). Recent Chatwoot versions only move forward (sent → delivered → read); a backward change is ignored and the unchanged message is returned. Changes to or from Failed are always applied.',
+  },
+  {
+    displayName: 'External Error',
+    name: 'externalError',
+    type: 'string',
+    default: '',
+    displayOptions: {
+      show: {
+        resource: ['message'],
+        operation: ['update'],
+        deliveryStatus: ['failed'],
+      },
+    },
+    description: 'Reason shown to agents for the failed delivery (e.g. the error returned by WhatsApp)',
   },
 ];

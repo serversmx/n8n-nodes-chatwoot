@@ -1,6 +1,6 @@
 import type { INodeProperties } from 'n8n-workflow';
 
-export const transcriptOperation: INodeProperties[] = [
+export const deleteCustomAttributesOperation: INodeProperties[] = [
   {
     displayName: 'Conversation ID',
     name: 'conversationId',
@@ -10,24 +10,25 @@ export const transcriptOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['conversation'],
-        operation: ['transcript'],
+        operation: ['deleteCustomAttributes'],
       },
     },
-    description: 'The ID of the conversation',
+    description: 'ID of the conversation',
   },
   {
-    displayName: 'Email',
-    name: 'email',
+    displayName: 'Attribute Keys',
+    name: 'attributeKeys',
     type: 'string',
     required: true,
     default: '',
+    placeholder: 'order_id, coupon_code',
     displayOptions: {
       show: {
         resource: ['conversation'],
-        operation: ['transcript'],
+        operation: ['deleteCustomAttributes'],
       },
     },
     description:
-      'Email address to send the transcript to. Requires the email transcript feature of the plan; Chatwoot answers 429 when the account exceeded its daily email quota.',
+      'Comma-separated custom attribute keys to remove from the conversation. The other keys are kept.',
   },
 ];

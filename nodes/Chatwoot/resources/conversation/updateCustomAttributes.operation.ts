@@ -30,4 +30,18 @@ export const updateCustomAttributesOperation: INodeProperties[] = [
     description:
       'Custom attributes as a JSON object (e.g., {"order_id": "12345", "priority_customer": true})',
   },
+  {
+    displayName: 'Merge With Existing',
+    name: 'merge',
+    type: 'boolean',
+    default: true,
+    displayOptions: {
+      show: {
+        resource: ['conversation'],
+        operation: ['updateCustomAttributes'],
+      },
+    },
+    description:
+      'Whether to only change the keys you send and keep the others (Chatwoot 4.17+). When off, or on older Chatwoot versions, the whole custom attributes object is replaced and keys you do not send are deleted.',
+  },
 ];
