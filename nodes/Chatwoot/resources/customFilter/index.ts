@@ -14,7 +14,7 @@ export const customFilterOperations: INodeProperties = {
     {
       name: 'Create',
       value: 'create',
-      description: 'Create a custom filter',
+      description: 'Create a saved filter (folder or segment) for the user who owns the API token',
       action: 'Create a custom filter',
     },
     {
@@ -32,7 +32,8 @@ export const customFilterOperations: INodeProperties = {
     {
       name: 'Get Many',
       value: 'getAll',
-      description: 'Get all custom filters',
+      description:
+        'Get the saved filters of one type that belong to the user who owns the API token',
       action: 'Get all custom filters',
     },
     {
@@ -59,7 +60,8 @@ export const customFilterFields: INodeProperties[] = [
         operation: ['get', 'update', 'delete'],
       },
     },
-    description: 'ID of the custom filter',
+    description:
+      'ID of the custom filter (only filters of the user who owns the API token are visible)',
   },
   // GetAll filter type
   {
@@ -78,7 +80,7 @@ export const customFilterFields: INodeProperties[] = [
         operation: ['getAll', 'create'],
       },
     },
-    description: 'Type of filter',
+    description: 'Type of saved filter: conversation folders, contact segments or report filters',
   },
   // Create
   {
@@ -107,7 +109,8 @@ export const customFilterFields: INodeProperties[] = [
         operation: ['create'],
       },
     },
-    description: 'Filter query in JSON format',
+    description:
+      'Saved conditions in the format the Chatwoot dashboard uses: {"payload": [{"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"]}]}. Same conditions as Conversation > Filter or Contact > Filter; a bare array of conditions is wrapped in "payload", and the node removes the query_operator of the last condition (Chatwoot 4.17+ rejects it).',
   },
   // Update
   {
@@ -135,7 +138,8 @@ export const customFilterFields: INodeProperties[] = [
         name: 'query',
         type: 'json',
         default: '',
-        description: 'Filter query in JSON format',
+        description:
+          'Saved conditions in the format the Chatwoot dashboard uses: {"payload": [...]} (a bare array of conditions is wrapped), replacing the current ones',
       },
     ],
   },

@@ -43,19 +43,29 @@ export const updateOperation: INodeProperties[] = [
         description: 'Description of the custom attribute',
       },
       {
-        displayName: 'Default Value',
-        name: 'default_value',
-        type: 'string',
-        default: '',
-        description: 'Default value for the attribute',
-      },
-      {
         displayName: 'List Values',
         name: 'attribute_values',
         type: 'string',
         default: '',
         placeholder: 'value1,value2,value3',
-        description: 'Comma-separated list of values (only for "List" type)',
+        description:
+          'Comma-separated list of values, replacing the current ones (only for "List" type)',
+      },
+      {
+        displayName: 'Regex Cue',
+        name: 'regex_cue',
+        type: 'string',
+        default: '',
+        description: 'Hint shown to agents when a value does not match the Regex Pattern',
+      },
+      {
+        displayName: 'Regex Pattern',
+        name: 'regex_pattern',
+        type: 'string',
+        default: '',
+        placeholder: '^[A-Z]{3}-\\d{4}$',
+        description:
+          'Regular expression that values must match when typed in the Chatwoot dashboard or pre-chat form (for "Text" type; the API does not enforce it)',
       },
     ],
   },

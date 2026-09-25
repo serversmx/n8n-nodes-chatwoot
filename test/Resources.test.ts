@@ -140,8 +140,8 @@ describe('Resource Operation Counts', () => {
     expect((conversationOperations.options as unknown[]).length).toBe(18);
   });
 
-  it('contact should have 14 operations', () => {
-    expect((contactOperations.options as unknown[]).length).toBe(14);
+  it('contact should have 20 operations', () => {
+    expect((contactOperations.options as unknown[]).length).toBe(20);
   });
 
   it('helpCenter should have 8 operations', () => {
