@@ -13,6 +13,6 @@ export const getAllOperation: INodeProperties[] = [
         operation: ['getAll'],
       },
     },
-    description: 'The source_id of the contact',
+    description: 'The source_id of the contact in this inbox (returned by Public Contact > Create)',
   },
 ];

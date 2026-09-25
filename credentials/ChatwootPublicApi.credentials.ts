@@ -22,23 +22,30 @@ export class ChatwootPublicApi implements ICredentialType {
       type: 'string',
       default: '',
       description:
-        'The unique identifier for your Web Widget inbox (a UUID string, not the numeric ID). Go to Settings → Inboxes → your Web Widget inbox → Configuration tab to find it. Note: only Web Widget (Channel::WebWidget) inboxes support the Public API; Telegram, Email, etc. do not.',
+        'The Inbox Identifier of an API channel inbox (a random token, not the numeric inbox ID). Find it in Chatwoot → Settings → Inboxes → your API inbox → Configuration. The Public API only works with API channel inboxes, such as the ones Evolution API creates; Website (web widget), Email, Telegram and other inbox types answer 404.',
       required: true,
+    },
+    {
+      displayName: 'HMAC Token',
+      name: 'hmacToken',
+      type: 'string',
+      typeOptions: {
+        password: true,
+      },
+      default: '',
+      description:
+        'Optional. The identity validation secret key of the same inbox (Configuration → Identity Validation, "User Identity Validation" in older versions). When set, Public Contact operations compute identifier_hash for contacts sent with an Identifier, which inboxes that enforce identity validation require. Update it here after rotating the key (Chatwoot 4.18+).',
     },
   ];
 
-  // Public API uses the inbox identifier in the URL path, not auth headers.
-  // The test creates a minimal contact to validate that the inbox exists and is a Web Widget.
-  // If the inbox identifier is invalid or not a Web Widget, Chatwoot returns 404.
+  // The Public API has no auth header: the inbox identifier in the URL is the credential.
+  // GET /public/api/v1/inboxes/{identifier} only reads the inbox settings: it creates nothing, works when
+  // identity validation (HMAC) is enforced, and answers 404 for anything that is not an API channel inbox.
   test: ICredentialTestRequest = {
     request: {
       baseURL: '={{$credentials.baseUrl.replace(/\\/$/, "")}}',
-      url: '=/public/api/v1/inboxes/{{$credentials.inboxIdentifier}}/contacts',
-      method: 'POST',
-      body: {
-        identifier: 'n8n-credential-test',
-        name: 'n8n Credential Test',
-      },
+      url: '=/public/api/v1/inboxes/{{$credentials.inboxIdentifier}}',
+      method: 'GET',
     },
   };
 }

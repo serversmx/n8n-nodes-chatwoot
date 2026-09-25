@@ -13,7 +13,7 @@ export const createOperation: INodeProperties[] = [
         operation: ['create'],
       },
     },
-    description: 'The source_id of the contact',
+    description: 'The source_id of the contact in this inbox (returned by Public Contact > Create)',
   },
   {
     displayName: 'Additional Fields',
