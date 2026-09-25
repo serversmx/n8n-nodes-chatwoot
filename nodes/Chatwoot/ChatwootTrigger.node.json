@@ -15,7 +15,7 @@
 			}
 		]
 	},
-	"alias": ["chat", "webhook", "event", "customer support", "live chat"],
+	"alias": ["chat", "webhook", "event", "customer support", "live chat", "agent bot", "api channel", "whatsapp"],
 	"subcategories": {
 		"Communication": ["Live Chat"]
 	}
