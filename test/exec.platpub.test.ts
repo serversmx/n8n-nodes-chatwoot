@@ -1699,8 +1699,8 @@ describe('publicMessage', () => {
         content_attributes: { items: [{ title: 'Sí', value: 'yes' }], submitted_values: submitted },
       });
 
-    it('legacy workflows: Content becomes the selected option (Chatwoot ignores `content`)', async () => {
-      const submitted = [{ title: 'Sí', value: 'Sí' }];
+    it('legacy workflows keep sending ignored Content without writing submitted_values', async () => {
+      const submitted: IDataObject[] = [];
       const { output, calls } = await runChatwootNode({
         params: {
           resource: 'publicMessage',
@@ -1712,8 +1712,8 @@ describe('publicMessage', () => {
         },
         responses: [{ method: 'PATCH', url: `${messages}/20`, body: answered(submitted) }],
       });
-      expect(calls[0].body).toEqual({ submitted_values: submitted });
-      expect(calls[0].body).not.toHaveProperty('content');
+      expect(calls[0].body).toEqual({ content: 'Sí' });
+      expect(calls[0].body).not.toHaveProperty('submitted_values');
       expect(json(output)).toEqual([answered(submitted)]);
     });
 

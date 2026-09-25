@@ -1,7 +1,7 @@
 import type { INodeProperties } from 'n8n-workflow';
 
 /**
- * Add Labels, Remove Labels and Set Labels share the same two fields. Chatwoot only offers
+ * Add Labels, Remove Labels and both Set Labels aliases share the same two fields. Chatwoot only offers
  * "replace all labels" (POST /contacts/:id/labels); Add and Remove read the current labels first.
  */
 export const addLabelsOperation: INodeProperties[] = [
@@ -14,7 +14,7 @@ export const addLabelsOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['contact'],
-        operation: ['addLabels', 'removeLabels', 'setLabels'],
+        operation: ['addLabels', 'appendLabels', 'removeLabels', 'setLabels'],
       },
     },
     description: 'ID of the contact whose labels are changed',
@@ -30,7 +30,7 @@ export const addLabelsOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['contact'],
-        operation: ['addLabels'],
+        operation: ['appendLabels'],
       },
     },
     description:
@@ -64,7 +64,7 @@ export const addLabelsOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['contact'],
-        operation: ['setLabels'],
+        operation: ['addLabels', 'setLabels'],
       },
     },
     description:

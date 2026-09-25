@@ -764,7 +764,7 @@ describe('conversation', () => {
   });
 
   describe('custom attributes', () => {
-    it('updateCustomAttributes merges by default (Chatwoot 4.17+)', async () => {
+    it('updateCustomAttributes replaces by default for saved workflows', async () => {
       const { output, calls } = await runChatwootNode({
         params: {
           resource: 'conversation',
@@ -776,12 +776,12 @@ describe('conversation', () => {
           {
             method: 'POST',
             url: '/conversations/42/custom_attributes',
-            body: { custom_attributes: { order_id: '123', plan: 'pro' } },
+            body: { custom_attributes: { order_id: '123' } },
           },
         ],
       });
-      expect(calls[0].body).toEqual({ custom_attributes: { order_id: '123' }, merge: true });
-      expect(output[0][0].json).toEqual({ custom_attributes: { order_id: '123', plan: 'pro' } });
+      expect(calls[0].body).toEqual({ custom_attributes: { order_id: '123' } });
+      expect(output[0][0].json).toEqual({ custom_attributes: { order_id: '123' } });
     });
 
     it('updateCustomAttributes with Merge off replaces the hash (no merge flag)', async () => {
@@ -1169,7 +1169,6 @@ describe('message', () => {
   });
 
   it.each<[IDataObject, string, string]>([
-    [{}, '', 'Content is required unless the message has attachments'],
     [
       { binaryPropertyNames: 'data', template_params: '{"name":"hello"}' },
       'Hi',
@@ -1222,12 +1221,13 @@ describe('message', () => {
 
   it('getAll: cursor pagination with before/after and filter_internal_messages', async () => {
     const all = range(1, 60).map((id) => messageJson(id));
+    // message_finder.rb: after (without before) = ascending, id > after, limit 100
     const reply = (call: RecordedCall) => {
-      const before = call.qs?.before === undefined ? Infinity : Number(call.qs.before);
+      const after = Number(call.qs?.after);
       return {
         body: {
           meta: { labels: [], additional_attributes: {}, contact: {} },
-          payload: all.filter((m) => (m.id as number) < before).slice(-20),
+          payload: all.filter((m) => (m.id as number) > after).slice(0, 100),
         },
       };
     };
@@ -1241,10 +1241,8 @@ describe('message', () => {
       },
       responses: [{ method: 'GET', url: '/conversations/42/messages', times: Infinity, reply }],
     });
-    expect(calls.map((c) => c.qs)).toEqual([
-      { filter_internal_messages: true, before: 50 },
-      { filter_internal_messages: true, before: 30 },
-    ]);
+    // Forward read from the after cursor; the before bound is applied client-side
+    expect(calls.map((c) => c.qs)).toEqual([{ filter_internal_messages: true, after: 25 }]);
     expect(ids(output[0])).toEqual(range(26, 49));
   });
 

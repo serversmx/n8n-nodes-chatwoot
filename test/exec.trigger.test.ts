@@ -260,6 +260,7 @@ describe('ChatwootTrigger description', () => {
     expect((options?.options as Array<{ name: string }>).map((o) => o.name)).toEqual([
       'includeDeliveryInfo',
       'includeRawBody',
+      'includeRawBodyText',
       'redactChannelSecrets',
       'signatureTolerance',
       'verifySignature',
@@ -649,6 +650,31 @@ describe('create (account webhook)', () => {
 });
 
 describe('delete (account webhook)', () => {
+  it('test teardown finds its URL instead of deleting a production ID in static data', async () => {
+    const testUrl = URL_N8N.replace('/webhook/', '/webhook-test/');
+    const mock = hook({
+      params: { events: ['message_created'] }, webhookUrl: testUrl, staticData: storedStatic(),
+      responses: [
+        { method: 'GET', url: '/webhooks', body: listResponse(webhookJson(), webhookJson({ id: 19, url: testUrl })) },
+        { method: 'DELETE', url: '/webhooks/19' },
+      ],
+    });
+    jest.spyOn(mock.ctx, 'getMode').mockReturnValue('manual');
+    await expect(methods.delete.call(mock.ctx)).resolves.toBe(true);
+    expect(mock.calls.map((call) => `${call.method} ${call.endpoint}`)).toEqual(['GET /webhooks', 'DELETE /webhooks/19']);
+    mock.http.assertAllConsumed();
+  });
+
+  it('keeps a stored webhook belonging to a different URL when the current URL is unregistered', async () => {
+    const mock = hook({
+      params: { events: ['message_created'] },
+      staticData: storedStatic({ webhookUrl: 'https://other.example.com/webhook/another-node/webhook' }),
+      responses: [{ method: 'GET', url: '/webhooks', body: listResponse(webhookJson({ url: 'https://other.example.com/webhook/another-node/webhook' })) }],
+    });
+    await expect(methods.delete.call(mock.ctx)).resolves.toBe(true);
+    expect(mock.calls.map((call) => call.method)).toEqual(['GET']);
+  });
+
   it('DELETEs the stored webhook and clears the static data', async () => {
     const mock = hook({
       params: { events: ['message_created'] },
@@ -798,12 +824,56 @@ function output(result: Awaited<ReturnType<ChatwootTrigger['webhook']>>): IDataO
 }
 
 describe('webhook() signature verification (account webhook)', () => {
+  it.each([true, false])('test delivery recovers its secret without using the production URL (delivery API %s)', async (hasDeliveryUrlApi) => {
+    const testUrl = URL_N8N.replace('/webhook/', '/webhook-test/');
+    const testSecret = 'test-secret';
+    const mock = delivery(messageEvent(), {
+      params: { events: ['message_created'] }, secret: testSecret,
+      staticData: storedStatic({ webhookId: 19, webhookUrl: testUrl, webhookSecret: 'old-test-secret' }),
+      responses: [{ method: 'GET', url: '/webhooks', body: listResponse(webhookJson(), webhookJson({ id: 19, url: testUrl, secret: testSecret })) }],
+    });
+    jest.spyOn(mock.ctx, 'getMode').mockReturnValue('manual');
+    if (hasDeliveryUrlApi) Object.assign(mock.ctx, { getWebhookResourceUrl: () => testUrl });
+    expect(mock.ctx.getNodeWebhookUrl('default')).toBe(URL_N8N);
+    expect(output(await trigger.webhook.call(mock.ctx))).toHaveLength(1);
+    expect(mock.staticData.node).toEqual({ webhookId: 19, webhookSecret: testSecret, webhookUrl: testUrl });
+  });
+
+  it('test delivery without any known test URL never recovers production static data', async () => {
+    const mock = delivery(messageEvent(), { params: { events: ['message_created'] } });
+    jest.spyOn(mock.ctx, 'getMode').mockReturnValue('manual');
+    expect(output(await trigger.webhook.call(mock.ctx))).toHaveLength(0);
+    expect(mock.response.statusCode).toBe(503);
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it('legacy Include Raw Body alone retains object expressions and does not include exact text', async () => {
+    const payload = messageEvent();
+    const mock = delivery(payload, {
+      params: { events: ['message_created'], options: { includeRawBody: true } }, staticData: storedStatic(),
+    });
+    const [item] = output(await trigger.webhook.call(mock.ctx));
+    expect((item.rawBody as IDataObject).conversation).toEqual(payload.conversation);
+    expect(item.rawBodyText).toBeUndefined();
+  });
+
+  it('rechecks an empty legacy secret on unsigned delivery and rejects it after the server upgrade', async () => {
+    const mock = delivery(messageEvent(), {
+      params: { events: ['message_created'] }, unsigned: true, staticData: storedStatic({ webhookSecret: '' }),
+      responses: [{ method: 'GET', url: '/webhooks', body: listResponse(webhookJson()) }],
+    });
+    expect(output(await trigger.webhook.call(mock.ctx))).toHaveLength(0);
+    expect(mock.response.statusCode).toBe(401);
+    expect(mock.staticData.node.webhookSecret).toBe(SECRET);
+    expect(mock.calls).toHaveLength(1);
+  });
+
   it('accepts a correctly signed delivery (HMAC over the raw body, not the parsed JSON)', async () => {
     const payload = messageEvent({ content: 'Precio <$100> & envío' });
     const mock = delivery(payload, {
       params: {
         events: ['message_created'],
-        options: { includeRawBody: true, includeDeliveryInfo: true },
+        options: { includeRawBody: true, includeRawBodyText: true, includeDeliveryInfo: true },
       },
       staticData: storedStatic(),
     });
@@ -816,10 +886,11 @@ describe('webhook() signature verification (account webhook)', () => {
       id: 501,
       content: 'Precio <$100> & envío',
     });
-    expect(item.rawBody).toBe(raw);
+    expect(item.rawBody).toEqual(payload);
+    expect(item.rawBodyText).toBe(raw);
     const sent = mock.ctx.getHeaderData() as IDataObject;
     const timestamp = Number(sent['x-chatwoot-timestamp']);
-    // a Code node can re-verify with rawBody + webhookDelivery (e.g. with Verify Signature turned off)
+    // A Code node can re-verify with rawBodyText + webhookDelivery.
     const expected = createHmac('sha256', SECRET).update(`${timestamp}.${raw}`).digest('hex');
     expect(item.webhookDelivery).toEqual({
       id: '7f1c7a5e-1c1e-4f0e-9b4d-2d9a3c1b0e11',
@@ -893,6 +964,7 @@ describe('webhook() signature verification (account webhook)', () => {
       unsigned: true,
     });
     const [item] = output(await trigger.webhook.call(mock.ctx));
+    expect(item.signatureVerified).toBe(false);
     expect(item.webhookDelivery).toEqual({
       id: null,
       timestamp: null,
@@ -903,13 +975,15 @@ describe('webhook() signature verification (account webhook)', () => {
     expect(mock.calls).toHaveLength(0);
   });
 
-  it('accepts unsigned deliveries from a webhook without secret (Chatwoot < 4.12)', async () => {
+  it('requires explicit verification opt-out for a webhook without secret (Chatwoot < 4.12)', async () => {
     const mock = delivery(messageEvent(), {
       params: { events: ['message_created'] },
       staticData: storedStatic({ webhookSecret: '' }),
       unsigned: true,
+      responses: [{ method: 'GET', url: '/webhooks', body: listResponse(webhookJson({ secret: '' })) }],
     });
-    expect(output(await trigger.webhook.call(mock.ctx))).toHaveLength(1);
+    expect(output(await trigger.webhook.call(mock.ctx))).toHaveLength(0);
+    expect(mock.response.statusCode).toBe(401);
   });
 
   it('recovers the secret from GET /webhooks when static data has none (active workflows upgraded from 0.8.x)', async () => {
@@ -946,18 +1020,19 @@ describe('webhook() signature verification (account webhook)', () => {
     expect(mock.response.statusCode).toBe(401);
   });
 
-  it('keeps legacy workflows running (unverified) when the Chatwoot API is unreachable, at most one lookup per minute', async () => {
+  it('fails closed when the secret lookup is unreachable, including during the cached error interval', async () => {
     const mock = delivery(messageEvent(), {
       params: { events: ['message_created'], options: { includeDeliveryInfo: true } },
       responses: [{ method: 'GET', url: '/webhooks', error: networkError('ECONNREFUSED') }],
     });
-    const warn = jest.spyOn(mock.ctx.logger, 'warn');
-    const [item] = output(await trigger.webhook.call(mock.ctx));
-    expect(item.webhookDelivery).toMatchObject({ signatureVerified: false });
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('accepting an unverified delivery'));
+    const error = jest.spyOn(mock.ctx.logger, 'error');
+    expect(output(await trigger.webhook.call(mock.ctx))).toHaveLength(0);
+    expect(mock.response.statusCode).toBe(503);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('HTTP 503'));
 
     const again = delivery(messageEvent(), { params: { events: ['message_created'] } });
-    expect(output(await trigger.webhook.call(again.ctx))).toHaveLength(1);
+    expect(output(await trigger.webhook.call(again.ctx))).toHaveLength(0);
+    expect(again.response.statusCode).toBe(503);
     expect(again.calls).toHaveLength(0); // cached for RECOVERY_INTERVAL_MS
     expect(RECOVERY_INTERVAL_MS).toBe(60_000);
   });
@@ -977,15 +1052,14 @@ describe('webhook() signature verification (account webhook)', () => {
           },
         ],
       });
-      const [item] = output(await trigger.webhook.call(mock.ctx));
+      expect(output(await trigger.webhook.call(mock.ctx))).toHaveLength(0);
       // one request, no backoff (the default policy would wait 2.5 s to 35 s on a 429)
       expect(mock.calls).toHaveLength(1);
       expect(mock.calls[0].url).toBe(`${API_ROOT}/webhooks`);
       expect(mock.calls[0].options.timeout).toBe(RECOVERY_TIMEOUT_MS);
       expect(RECOVERY_TIMEOUT_MS).toBeLessThan(5_000);
       expect(sleep.delays).toEqual([]);
-      // legacy workflow: accepted unverified instead of failing
-      expect(item.webhookDelivery).toMatchObject({ signatureVerified: false });
+      expect(mock.response.statusCode).toBe(503);
     } finally {
       sleep.restore();
     }
@@ -1195,10 +1269,10 @@ describe('webhook() event selection and filters', () => {
     ).toHaveLength(1);
   });
 
-  it('redacts channel secrets of inbox events and never adds the raw body for them', async () => {
+  it('redacts inbox secrets in both the payload and legacy parsed rawBody and omits exact text', async () => {
     const { items } = await run(inboxCreatedEvent, {
       events: ['inbox_created'],
-      options: { includeRawBody: true },
+      options: { includeRawBody: true, includeRawBodyText: true },
     });
     expect(items).toHaveLength(1);
     const channel = items[0].channel as IDataObject;
@@ -1208,7 +1282,8 @@ describe('webhook() event selection and filters', () => {
       identifier: 'aB3dEf6hIjKl',
       webhook_url: 'https://evolution.example.com/chatwoot/webhook/ventas',
     });
-    expect(items[0].rawBody).toBeUndefined();
+    expect((items[0].rawBody as IDataObject).channel).toEqual(channel);
+    expect(items[0].rawBodyText).toBeUndefined();
     expect(items[0].account).toEqual(account);
 
     const raw = await run(inboxCreatedEvent, {

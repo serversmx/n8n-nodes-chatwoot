@@ -88,7 +88,7 @@ export const updateOperation: INodeProperties[] = [
         type: 'number',
         default: 0,
         description:
-          'Enterprise only (custom_roles feature): ID of the custom role to assign; 0 removes it. Note: Chatwoot Enterprise clears the custom role on every agent update that does not send it, so set it again when updating an agent that has one.',
+          'Enterprise only (custom_roles feature): ID of the custom role to assign; 0 removes it. When omitted, the node reads and preserves the current custom role.',
       },
     ],
   },

@@ -59,7 +59,7 @@ export const updateOperation: INodeProperties[] = [
         type: 'number',
         default: 0,
         description:
-          'ID of the company to link the contact to. Requires Chatwoot 4.15+ Enterprise with the Companies feature enabled; ignored otherwise.',
+          'ID of the company to link the contact to; set 0 to unlink the company. Requires Chatwoot 4.15+ Enterprise with the Companies feature enabled; ignored otherwise.',
       },
       {
         displayName: 'Custom Attributes',
@@ -75,14 +75,14 @@ export const updateOperation: INodeProperties[] = [
         type: 'string',
         placeholder: 'name@email.com',
         default: '',
-        description: 'Email address of the contact (unique per account)',
+        description: 'Email address of the contact (unique per account). An empty value clears it.',
       },
       {
         displayName: 'Identifier',
         name: 'identifier',
         type: 'string',
         default: '',
-        description: IDENTIFIER_DESCRIPTION,
+        description: `${IDENTIFIER_DESCRIPTION} An empty value clears the identifier.`,
       },
       {
         displayName: 'Name',
@@ -98,7 +98,7 @@ export const updateOperation: INodeProperties[] = [
         placeholder: '+5215512345678',
         default: '',
         description:
-          'Phone number in E.164 format: "+" followed by country code and number, no spaces (unique per account)',
+          'Phone number in E.164 format: "+" followed by country code and number, no spaces (unique per account). An empty value clears it.',
       },
     ],
   },

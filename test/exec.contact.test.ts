@@ -563,7 +563,7 @@ describe('contact filter (GAP-2 / RELEASE-20)', () => {
     ]);
     expect(calls).toHaveLength(1);
     expect(calls[0].body).toEqual({ payload: [] });
-    expect(calls[0].qs).toEqual({ page: 1 });
+    expect(calls[0].qs).toEqual({ sort: 'created_at', page: 1 });
     expect(output[0].map((item) => item.json.id)).toEqual([1, 2]);
   });
 
@@ -643,7 +643,7 @@ describe('contact filter (GAP-2 / RELEASE-20)', () => {
 describe('contact labels (CORE-15)', () => {
   it('Add Labels reads the current labels and posts the union', async () => {
     const { output, calls } = await run(
-      { operation: 'addLabels', contactId: 5, labels: ['vip', 'customer'] },
+      { operation: 'appendLabels', contactId: 5, labels: ['vip', 'customer'] },
       [
         { method: 'GET', url: '/contacts/5/labels', body: { payload: ['lead', 'VIP'] } },
         {
@@ -662,7 +662,7 @@ describe('contact labels (CORE-15)', () => {
   });
 
   it('Add Labels skips the write when every label is already present', async () => {
-    const { output, calls } = await run({ operation: 'addLabels', contactId: 5, labels: ['vip'] }, [
+    const { output, calls } = await run({ operation: 'appendLabels', contactId: 5, labels: ['vip'] }, [
       { method: 'GET', url: '/contacts/5/labels', body: { payload: ['lead', 'vip'] } },
     ]);
     expect(calls).toHaveLength(1);
@@ -698,7 +698,7 @@ describe('contact labels (CORE-15)', () => {
   it('processes each input item with its own contact and labels (pairedItem kept)', async () => {
     const { output, calls } = await runChatwootNode({
       items: [{ json: {} }, { json: {} }],
-      params: { resource: 'contact', operation: 'addLabels' },
+      params: { resource: 'contact', operation: 'appendLabels' },
       itemParams: [
         { contactId: 5, labels: ['vip'] },
         { contactId: 6, labels: 'lead' },
@@ -983,7 +983,7 @@ describe('contact findByWhatsApp (EVOCW-6)', () => {
     );
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(`${API}/contacts/search`);
-    expect(calls[0].qs).toEqual({ q: '5512345678', page: 1 });
+    expect(calls[0].qs).toEqual({ q: '5512345678', sort: 'created_at', page: 1 });
     expect(output[0]).toHaveLength(1);
     expect(output[0][0].json).toEqual({
       found: true,
@@ -1015,7 +1015,7 @@ describe('contact findByWhatsApp (EVOCW-6)', () => {
       { operation: 'findByWhatsApp', whatsappNumber: '123456789012345@lid' },
       [{ url: '/contacts/search', body: searchPage([lidContact], 1, false) }],
     );
-    expect(calls[0].qs).toEqual({ q: '123456789012345', page: 1 });
+    expect(calls[0].qs).toEqual({ q: '123456789012345', sort: 'created_at', page: 1 });
     expect(output[0][0].json).toMatchObject({
       found: true,
       isLid: true,
@@ -1397,7 +1397,7 @@ describe('customFilter', () => {
     expect(calls[0].body).toEqual({
       name: 'VIP contacts',
       filter_type: 'contact',
-      query: saved.query,
+      query: { payload: saved.query.payload.map((condition) => ({ ...condition, query_operator: null })) },
     });
     expect(output[0][0].json).toEqual(saved);
   });
@@ -1438,10 +1438,13 @@ describe('customFilter', () => {
         customFilterId: 3,
         updateFields: { query: JSON.stringify(conditions) },
       },
-      responses: [{ method: 'PATCH', url: '/custom_filters/3', body: saved }],
+      responses: [
+        { method: 'GET', url: '/custom_filters/3', body: saved },
+        { method: 'PATCH', url: '/custom_filters/3', body: saved },
+      ],
     });
-    expect(updated.calls[0].url).toBe(`${API}/custom_filters/3`);
-    expect(updated.calls[0].body).toEqual({ query: expectedQuery });
+    expect(updated.calls[1].url).toBe(`${API}/custom_filters/3`);
+    expect(updated.calls[1].body).toEqual({ query: expectedQuery });
   });
 
   it('rejects a query that is not a JSON object or array', async () => {

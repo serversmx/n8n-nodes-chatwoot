@@ -322,6 +322,28 @@ describe('automationRule', () => {
     expect(output[0][0].json).toEqual(created);
   });
 
+  it.each(['[]', '{}', 'null'])('create rejects unsafe Conditions %s before an API call', async (conditions) => {
+    const { error, calls } = await runExpectingError({
+      resource: 'automationRule', operation: 'create', name: 'Rule', eventName: 'message_created', conditions,
+      actions: '[{"action_name":"resolve_conversation","action_params":[]}]',
+    });
+    expect(error).toBeInstanceOf(NodeOperationError);
+    expect(error.message).toContain('Add at least one condition');
+    expect(error.context.itemIndex).toBe(0);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('rejects the default empty Conditions and explicit empty updates', async () => {
+    for (const params of [
+      { resource: 'automationRule', operation: 'create', name: 'Rule', eventName: 'message_created' },
+      { resource: 'automationRule', operation: 'update', automationRuleId: 7, updateFields: { conditions: '[]' } },
+    ]) {
+      const { error, calls } = await runExpectingError(params);
+      expect(error.message).toContain('without conditions runs on every event');
+      expect(calls).toHaveLength(0);
+    }
+  });
+
   it('create: an execution delay of 0 is not sent', async () => {
     const { calls } = await runChatwootNode({
       params: {
@@ -329,7 +351,7 @@ describe('automationRule', () => {
         operation: 'create',
         name: 'Instant',
         eventName: 'message_created',
-        conditions: '[]',
+        conditions: JSON.stringify(automationRule().conditions),
         actions: '[]',
         additionalFields: { execution_delay: 0 },
       },
@@ -338,7 +360,7 @@ describe('automationRule', () => {
     expect(calls[0].body).toEqual({
       name: 'Instant',
       event_name: 'message_created',
-      conditions: [],
+      conditions: automationRule().conditions,
       actions: [],
     });
   });
@@ -349,7 +371,7 @@ describe('automationRule', () => {
       operation: 'create',
       name: 'Too short',
       eventName: 'conversation_updated',
-      conditions: '[]',
+      conditions: JSON.stringify(automationRule().conditions),
       actions: '[]',
       additionalFields: { execution_delay: 5 },
     });
@@ -367,7 +389,7 @@ describe('automationRule', () => {
         operation: 'create',
         name: 'Delayed',
         eventName: 'conversation_updated',
-        conditions: '[]',
+        conditions: JSON.stringify(automationRule().conditions),
         actions: '[]',
         additionalFields: { execution_delay: 60 },
       },

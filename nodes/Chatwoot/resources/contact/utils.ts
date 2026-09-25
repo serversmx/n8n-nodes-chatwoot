@@ -46,8 +46,8 @@ export const WHATSAPP_SEARCH_LIMIT = 100;
  * `include_contact_inboxes` defaults to true on the server, so it is only sent when set.
  */
 export function buildContactListQuery(options: IDataObject): IDataObject {
-  const qs: IDataObject = {};
-  if (options.sort) qs.sort = options.sort;
+  // A stable field prevents heap order and last-activity updates from moving contacts between pages.
+  const qs: IDataObject = { sort: options.sort || 'created_at' };
   if (options.include_contact_inboxes !== undefined) {
     qs.include_contact_inboxes = options.include_contact_inboxes ? 'true' : 'false';
   }

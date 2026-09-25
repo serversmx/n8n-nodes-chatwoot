@@ -73,7 +73,8 @@ export const reportOperations: INodeProperties = {
     {
       name: 'Conversation Counts',
       value: 'conversationCounts',
-      description: 'Get conversation counts by status (mine, unassigned, assigned, all)',
+      description:
+        'Count open conversations visible to the token user by assignee: mine, assigned, unassigned and all. Chatwoot 4.18 defaults to 30 requests per minute per user. Use Conversation → Get Meta to filter other statuses.',
       action: 'Get conversation counts',
     },
     {
@@ -166,7 +167,8 @@ export const reportOperations: INodeProperties = {
     {
       name: 'Year in Review',
       value: 'yearInReview',
-      description: 'Get annual review statistics',
+      description:
+        'Get personal annual statistics for the API token user and conversations assigned to that user. Chatwoot saves the first result for each account/year in the user settings and reuses it without refreshing. User tokens only; agent bot tokens are unsupported.',
       action: 'Get year in review',
     },
   ],
@@ -185,7 +187,6 @@ const DATE_RANGE_OPERATIONS = [
   'inboxStatistics',
   'labelStatistics',
   'outgoingMessagesCount',
-  'reportingEvents',
   'teamStatistics',
   'timeseries',
 ];
@@ -223,6 +224,12 @@ const dateRangeFields: INodeProperties[] = [
 
 export const reportFields: INodeProperties[] = [
   ...dateRangeFields,
+  ...dateRangeFields.map((field): INodeProperties => ({
+    ...field,
+    required: false,
+    displayOptions: { show: { resource: ['report'], operation: ['reportingEvents'] } },
+    description: 'Optional date range for reporting events (both Since and Until must be set)',
+  })),
   // Timeseries / summary / drilldown fields
   {
     displayName: 'Type',
@@ -244,7 +251,25 @@ export const reportFields: INodeProperties[] = [
       },
     },
     description:
-      'Entity type for the report. For anything other than Account, set Options → Entity ID.',
+      'Entity type for the report. Non-account reports require Entity ID; saved Options → Entity ID values remain supported.',
+  },
+  {
+    displayName: 'Entity ID',
+    name: 'entityId',
+    type: 'number',
+    required: true,
+    default: 0,
+    typeOptions: { minValue: 1 },
+    displayOptions: {
+      show: {
+        resource: ['report'],
+        operation: ['accountSummary', 'botSummary', 'drilldown', 'timeseries'],
+        type: ['agent', 'inbox', 'label', 'team'],
+      },
+      // Saved workflows already supply this value in the Options collection.
+      hide: { '/options.id': [{ _cnd: { exists: true } }] },
+    },
+    description: 'ID of the agent, inbox, label or team selected in Type',
   },
   {
     displayName: 'Metric',
@@ -411,7 +436,8 @@ export const reportFields: INodeProperties[] = [
         operation: ['yearInReview'],
       },
     },
-    description: 'Year for the review',
+    description:
+      'Year for the token user’s personal review (default 2025 is retained for saved workflows). Select a completed year: Chatwoot caches the first result in the user settings and does not refresh current-year results.',
   },
   ...csvOutputFields('report', Object.keys(REPORT_CSV_DOWNLOADS)),
   // Common options (each option is only shown for the operations whose endpoint reads it)

@@ -31,7 +31,7 @@ export const contactOperations: INodeProperties = {
   options: [
     {
       name: 'Add Labels',
-      value: 'addLabels',
+      value: 'appendLabels',
       description: 'Add labels to a contact, keeping the labels it already has',
       action: 'Add labels to contact',
     },
@@ -144,6 +144,12 @@ export const contactOperations: INodeProperties = {
     },
     {
       name: 'Set Labels',
+      value: 'addLabels',
+      description: 'Replace all contact labels with the given list; an empty list clears them',
+      action: 'Replace contact labels',
+    },
+    {
+      name: 'Set Labels (Alias)',
       value: 'setLabels',
       description: 'Replace all labels of a contact with the given list',
       action: 'Set contact labels',

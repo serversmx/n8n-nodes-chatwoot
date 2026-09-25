@@ -52,7 +52,7 @@ export const updateOperation: INodeProperties[] = [
       },
     },
     description:
-      'ID of the interactive message being answered (an input_select, form or input_csat message)',
+      'ID of the message in this conversation. Chatwoot accepts any message ID, so choose an input_select, form or input_csat message matching Response Type.',
   },
   {
     displayName: 'Response Type',
@@ -70,6 +70,11 @@ export const updateOperation: INodeProperties[] = [
         description: 'Answer a form message with one name/value pair per form field',
       },
       {
+        name: 'Legacy Content (Ignored)',
+        value: '',
+        description: 'Preserve saved workflows: send Content, which Chatwoot ignores without editing the message',
+      },
+      {
         name: 'Raw JSON',
         value: 'json',
         description: 'Send your own submitted_values object or array',
@@ -80,7 +85,7 @@ export const updateOperation: INodeProperties[] = [
         description: 'Answer an input_select message with the option the contact chose',
       },
     ],
-    default: 'option',
+    default: '',
     displayOptions: {
       show: {
         resource: ['publicMessage'],
@@ -88,11 +93,18 @@ export const updateOperation: INodeProperties[] = [
       },
     },
     description:
-      'Kind of interactive message being answered. The answer is stored as submitted_values.',
+      'Choose an explicit response type to submit an interactive answer. The legacy default sends Content unchanged; Chatwoot ignores it and cannot edit message text.',
   },
   {
-    // Historical name: this field used to be sent as `content`, which Chatwoot ignores. It is now the
-    // title of the selected option, the only reading of "update the message" the endpoint supports.
+    displayName: 'Content (Legacy)',
+    name: 'content',
+    type: 'string',
+    required: true,
+    default: '',
+    displayOptions: show(['']),
+    description: 'Preserved for saved workflows. Chatwoot ignores Content on this endpoint; explicitly select a Response Type to submit an interactive answer.',
+  },
+  {
     displayName: 'Selected Option Title',
     name: 'content',
     type: 'string',

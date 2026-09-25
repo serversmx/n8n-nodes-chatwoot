@@ -15,7 +15,7 @@ export const SIGNATURE_HEADER = 'x-chatwoot-signature';
 export const TIMESTAMP_HEADER = 'x-chatwoot-timestamp';
 export const DELIVERY_HEADER = 'x-chatwoot-delivery';
 
-/** Default accepted clock difference between Chatwoot and n8n (replay protection). */
+/** Default accepted clock difference between Chatwoot and n8n (freshness, not deduplication). */
 export const DEFAULT_SIGNATURE_TOLERANCE_SECONDS = 300;
 
 /** Hex HMAC-SHA256 over `${timestamp}.${rawBody}` (bytes of the raw body, not a re-serialization). */

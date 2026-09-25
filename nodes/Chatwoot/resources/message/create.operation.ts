@@ -30,7 +30,7 @@ export const createOperation: INodeProperties[] = [
       },
     },
     description:
-      'The message text. Optional when the message has attachments (it becomes the caption), a template or a non-text content type.',
+      'The message text, or caption for attachments. May be empty, including for a template or non-text content type.',
   },
   {
     displayName: 'Options',

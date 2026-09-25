@@ -79,7 +79,7 @@ describe('Resource Definitions', () => {
     it('should have alphabetically sorted operation options', () => {
       const opts = operations.options as Array<{ name: string }>;
       const names = opts.map((o) => o.name);
-      const sorted = [...names].sort();
+      const sorted = [...names].sort((a, b) => a.localeCompare(b));
       expect(names).toEqual(sorted);
     });
 
@@ -136,12 +136,12 @@ describe('Resource Operation Counts', () => {
     expect((slaPolicyOperations.options as unknown[]).length).toBe(5);
   });
 
-  it('conversation should have 23 operations', () => {
-    expect((conversationOperations.options as unknown[]).length).toBe(23);
+  it('conversation should have 25 operations', () => {
+    expect((conversationOperations.options as unknown[]).length).toBe(25);
   });
 
-  it('contact should have 20 operations', () => {
-    expect((contactOperations.options as unknown[]).length).toBe(20);
+  it('contact should have 21 operations', () => {
+    expect((contactOperations.options as unknown[]).length).toBe(21);
   });
 
   it('helpCenter should have 18 operations', () => {

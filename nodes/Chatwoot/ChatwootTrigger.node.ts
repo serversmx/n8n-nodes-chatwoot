@@ -51,6 +51,18 @@ function getWebhookUrl(ctx: TriggerContext): string {
   return url;
 }
 
+/** getNodeWebhookUrl on a delivery context may always return production, even for a test delivery. */
+function getDeliveryWebhookUrl(ctx: IWebhookFunctions, staticData: ITriggerStaticData): string | undefined {
+  const deliveryContext = ctx as IWebhookFunctions & {
+    getWebhookResourceUrl?: (name: string) => string | undefined;
+  };
+  const calledUrl = deliveryContext.getWebhookResourceUrl?.('default');
+  if (calledUrl) return calledUrl;
+  // Older n8n versions lack the delivery-aware API. A test registration must not recover production data.
+  if (ctx.getMode() === 'manual') return staticData.webhookUrl;
+  return getWebhookUrl(ctx);
+}
+
 /** Events for the account webhook `subscriptions`; Chatwoot answers 422 for an empty or unknown list. */
 function getAccountEvents(ctx: IHookFunctions): string[] {
   const events = ctx.getNodeParameter('events', []) as string[];
@@ -133,14 +145,14 @@ async function getRawBody(ctx: IWebhookFunctions, body: IDataObject): Promise<Bu
   return Buffer.from(JSON.stringify(body ?? {}), 'utf8');
 }
 
-type AuthResult = { ok: true; verified: boolean } | { ok: false; reason: string };
+type AuthResult = { ok: true; verified: boolean } | { ok: false; reason: string; status?: 401 | 503 };
 
 /**
  * Authenticate a delivery with X-Chatwoot-Signature.
  * - Manual source: the Signing Secret parameter is required.
  * - Account webhook: the secret stored at activation, recovered from GET /webhooks (by URL) when the static
- *   data has none (workflows activated with 0.8.x). Chatwoot < 4.12 does not sign: unsigned deliveries are
- *   accepted only while no secret is known for the webhook.
+ *   data has none (workflows activated with 0.8.x). A failed lookup never bypasses verification.
+ *   Servers without signing support require the explicit Verify Signature = false option.
  */
 async function authenticateDelivery(
   ctx: IWebhookFunctions,
@@ -161,15 +173,19 @@ async function authenticateDelivery(
       : { ok: false, reason: describeSignatureFailure(check.reason) };
   }
 
-  const url = getWebhookUrl(ctx);
   // n8n keeps test and production registrations in separate static data, so a stored secret always belongs
   // to this node's webhook (possibly registered under an older n8n URL: tried first, recovered on mismatch)
   const staticData = ctx.getWorkflowStaticData('node') as ITriggerStaticData;
-  let secret = typeof staticData.webhookSecret === 'string' ? staticData.webhookSecret : undefined;
+  const url = getDeliveryWebhookUrl(ctx, staticData);
+  if (!url) return { ok: false, status: 503, reason: 'the test webhook URL is unavailable; restart Listen for test event to register it' };
+  const storedUrlMatches = !staticData.webhookUrl || staticData.webhookUrl === url ||
+    (ctx.getMode() !== 'manual' && isSameNodeWebhookPath(staticData.webhookUrl, url));
+  let secret = typeof staticData.webhookSecret === 'string' && storedUrlMatches
+    ? staticData.webhookSecret : undefined;
   let recovered = false;
 
-  // Unknown secret, or an unsigned (pre-4.12) webhook that now sends signatures: ask Chatwoot
-  if (secret === undefined || (secret === '' && signature)) {
+  // Recheck unsigned legacy registrations too: an upgraded server now has a secret.
+  if (secret === undefined || secret === '') {
     const result = await recoverWebhookSecret.call(ctx, url, staticData);
     recovered = true;
     if (result.status === 'found') {
@@ -181,16 +197,11 @@ async function authenticateDelivery(
           'no Chatwoot account webhook is registered for this URL (reactivate the workflow, or use the "Agent Bot / API Channel (Manual URL)" source for agent bots and API channels)',
       };
     } else {
-      // Could not reach the Chatwoot API: keep workflows activated before 0.9.0 working
-      ctx.logger.warn(
-        `Chatwoot Trigger: accepting an unverified delivery because the webhook secret could not be loaded (${result.message})`,
-      );
-      return { ok: true, verified: false };
+      return { ok: false, status: 503, reason: `the webhook secret could not be loaded (${result.message})` };
     }
   }
 
-  // Chatwoot < 4.12: the webhook has no secret and deliveries are not signed
-  if (secret === '') return { ok: true, verified: false };
+  if (secret === '') return { ok: false, reason: 'the webhook has no signing secret; unsigned servers require Options > Verify Signature to be turned off explicitly' };
 
   let check = verify(secret);
   if (!check.valid && check.reason === 'signature_mismatch' && !recovered) {
@@ -261,13 +272,13 @@ export class ChatwootTrigger implements INodeType {
             name: 'Account Webhook (Automatic)',
             value: 'accountWebhook',
             description:
-              'n8n creates a Chatwoot account webhook for this URL when the workflow is activated, stores its signing secret and deletes it on deactivation. Needs an administrator API access token (on Chatwoot Cloud, a plan with API and webhooks). Do not paste this URL into an agent bot or API channel: they sign with their own secret and are rejected with HTTP 401 (use the Manual URL source for them).',
+              'n8n creates a Chatwoot account webhook for this URL when the workflow is activated, stores its signing secret and deletes it on deactivation. Needs an administrator API access token (on Chatwoot Cloud, a plan with API and webhooks). Do not paste this URL into an agent bot or API channel: they sign with their own secret and are rejected with HTTP 401 (use the Manual URL source). API channel message deliveries rejected with an error are marked as failed in Chatwoot.',
           },
           {
             name: 'Agent Bot / API Channel (Manual URL)',
             value: 'manual',
             description:
-              'You paste this URL into an agent bot, an API channel inbox or a webhook you manage in Chatwoot, and provide its signing secret. n8n registers nothing in Chatwoot.',
+              'You paste this URL into an agent bot, an API channel inbox or a webhook you manage in Chatwoot, and provide its signing secret. n8n registers nothing in Chatwoot. Use the Production URL after testing: API channel message deliveries receiving an error (invalid signature, inactive workflow or Test URL not listening) are marked as failed in Chatwoot.',
           },
         ],
         default: 'accountWebhook',
@@ -275,7 +286,7 @@ export class ChatwootTrigger implements INodeType {
       },
       {
         displayName:
-          "Paste this node's Production URL (or the Test URL while testing) into Chatwoot: the agent bot's Webhook URL (Settings > Bots), the API channel inbox's Webhook URL (Settings > Inboxes > the inbox > Settings) or a webhook in Settings > Integrations > Webhooks. Then copy its Webhook Secret into Signing Secret. Agent bots: when n8n answers with an error (workflow inactive, invalid signature), Chatwoot moves pending conversations to Open unless the account keeps them pending on bot failure.",
+          "Paste this node's Production URL (or the Test URL while testing) into Chatwoot: the agent bot's Webhook URL (Settings > Bots), the API channel inbox's Webhook URL (Settings > Inboxes > the inbox > Settings) or a webhook in Settings > Integrations > Webhooks. Then copy its Webhook Secret into Signing Secret. Agent bots: when n8n answers with an error (workflow inactive, invalid signature), Chatwoot moves pending conversations to Open unless the account keeps them pending on bot failure. API channels: an error response marks the message as failed, including when the Test URL is not listening. Use the Production URL after testing.",
         name: 'manualSetupNotice',
         type: 'notice',
         default: '',
@@ -610,7 +621,7 @@ export class ChatwootTrigger implements INodeType {
             type: 'boolean',
             default: false,
             description:
-              'Whether to add `webhookDelivery` with the X-Chatwoot-Delivery ID (use it to deduplicate agent bot retries), the X-Chatwoot-Timestamp, the X-Chatwoot-Signature and whether the signature was verified',
+              'Whether to add `webhookDelivery` with the delivery ID, timestamp, signature and verification result. Deduplicate delivery IDs in persistent workflow storage when needed; signatures check freshness, not uniqueness. Stored signatures plus exact body text permit replay within the tolerance window.',
           },
           {
             displayName: 'Include Raw Body',
@@ -618,7 +629,15 @@ export class ChatwootTrigger implements INodeType {
             type: 'boolean',
             default: false,
             description:
-              'Whether to add `rawBody`: the exact JSON text Chatwoot sent (the bytes the signature covers). Not added to inbox events while Redact Channel Secrets is on.',
+              'Whether to add `rawBody` as the parsed JSON object, preserving the output of v0.8.3. Inbox channel secrets are redacted when Redact Channel Secrets is on. Use Include Raw Body Text for the exact signed text.',
+          },
+          {
+            displayName: 'Include Raw Body Text',
+            name: 'includeRawBodyText',
+            type: 'boolean',
+            default: false,
+            description:
+              'Whether to add `rawBodyText`: the exact JSON text covered by the signature. Omitted for inbox events while Redact Channel Secrets is on. Stored text and signature permit replay within the signature tolerance window.',
           },
           {
             displayName: 'Redact Channel Secrets',
@@ -637,7 +656,7 @@ export class ChatwootTrigger implements INodeType {
             },
             default: DEFAULT_SIGNATURE_TOLERANCE_SECONDS,
             description:
-              'Maximum age of X-Chatwoot-Timestamp, in seconds, to block replayed requests. 0 disables the timestamp check (the signature is still verified).',
+              'Maximum age of X-Chatwoot-Timestamp, in seconds. Rejects stale signatures; deliveries inside this window are not deduplicated. 0 disables the timestamp check (the signature is still verified).',
           },
           {
             displayName: 'Verify Signature',
@@ -645,7 +664,7 @@ export class ChatwootTrigger implements INodeType {
             type: 'boolean',
             default: true,
             description:
-              'Whether to verify X-Chatwoot-Signature (HMAC-SHA256 of the timestamp and raw body) and answer HTTP 401 to invalid requests. On by default. Turn it off only for servers that do not sign: Chatwoot before 4.12 (account webhooks) or 4.13 (agent bots, API channels).',
+              'Whether to verify X-Chatwoot-Signature and reject invalid requests with HTTP 401; an unavailable account webhook secret returns HTTP 503. Turn off explicitly for servers without signing support. Unverified output always includes signatureVerified: false.',
           },
         ],
       },
@@ -767,7 +786,9 @@ export class ChatwootTrigger implements INodeType {
         const staticData = this.getWorkflowStaticData('node') as ITriggerStaticData;
         invalidateWebhookRecovery(url);
 
-        let id = staticData.webhookId;
+        // Test teardown must never delete a production webhook copied into its static data.
+        const storedUrlMatches = !staticData.webhookUrl || staticData.webhookUrl === url;
+        let id = storedUrlMatches ? staticData.webhookId : undefined;
         if (id === undefined) {
           // No stored id (e.g. activated with 0.8.x, which never stored it): find our webhook by URL
           try {
@@ -800,8 +821,11 @@ export class ChatwootTrigger implements INodeType {
           : DEFAULT_SIGNATURE_TOLERANCE_SECONDS;
       const auth = await authenticateDelivery(this, source, rawBody, headers, tolerance);
       if (!auth.ok) {
-        this.logger.warn(`Chatwoot Trigger: rejected a delivery with HTTP 401: ${auth.reason}`);
-        res.status(401).json({ message: 'Unauthorized: invalid X-Chatwoot-Signature' });
+        const status = auth.status ?? 401;
+        const message = `Chatwoot Trigger: rejected a delivery with HTTP ${status}: ${auth.reason}`;
+        if (status === 503) this.logger.error(message);
+        else this.logger.warn(message);
+        res.status(status).json({ message: status === 503 ? 'Service unavailable: webhook signing secret could not be loaded' : 'Unauthorized: invalid X-Chatwoot-Signature' });
         return { noWebhookResponse: true };
       }
       signatureVerified = auth.verified;
@@ -835,10 +859,11 @@ export class ChatwootTrigger implements INodeType {
     };
     if (redact) returnData = redactInboxEventSecrets(returnData);
 
-    // The exact JSON Chatwoot sent (not the parsed object); omitted when it would leak redacted secrets
-    if (options.includeRawBody && !redact) {
-      returnData.rawBody = rawBody.toString('utf8');
-    }
+    // Preserve the parsed-object contract of 0.8.3, including rawBody on inbox events.
+    if (options.includeRawBody) returnData.rawBody = redact ? redactInboxEventSecrets(body) : body;
+    // Exact signed text is explicit and omitted when it would expose redacted channel secrets.
+    if (options.includeRawBodyText && !redact) returnData.rawBodyText = rawBody.toString('utf8');
+    if (!signatureVerified) returnData.signatureVerified = false;
 
     if (options.includeDeliveryInfo) {
       const timestamp = headerValue(headers, TIMESTAMP_HEADER);

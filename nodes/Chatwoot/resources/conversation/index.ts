@@ -35,8 +35,8 @@ export const conversationOperations: INodeProperties = {
   options: [
     {
       name: 'Add Labels',
-      value: 'addLabels',
-      description: 'Set labels on a conversation',
+      value: 'appendLabels',
+      description: 'Add labels while keeping the existing conversation labels',
       action: 'Add labels to a conversation',
     },
     {
@@ -125,10 +125,22 @@ export const conversationOperations: INodeProperties = {
       action: 'Mute a conversation',
     },
     {
+      name: 'Remove Labels',
+      value: 'removeLabels',
+      description: 'Remove the specified labels and keep the other conversation labels',
+      action: 'Remove conversation labels',
+    },
+    {
       name: 'Search',
       value: 'search',
       description: 'Search conversations by message content',
       action: 'Search conversations',
+    },
+    {
+      name: 'Set Labels',
+      value: 'addLabels',
+      description: 'Replace all conversation labels with the given list; an empty list clears them',
+      action: 'Replace conversation labels',
     },
     {
       name: 'Toggle Priority',
@@ -163,13 +175,13 @@ export const conversationOperations: INodeProperties = {
     {
       name: 'Update Custom Attributes',
       value: 'updateCustomAttributes',
-      description: 'Set conversation custom attributes (by default merged with the existing ones on Chatwoot 4.17+)',
+      description: 'Replace conversation custom attributes, or optionally merge with the existing ones on Chatwoot 4.17+',
       action: 'Update conversation custom attributes',
     },
     {
       name: 'Update Status',
       value: 'updateStatus',
-      description: 'Update conversation status (open, resolved, pending, snoozed)',
+      description: 'Update status. Open assigns to an agent-role token owner; on Chatwoot 4.17.1 and later any user token also removes the bot or Captain assignee.',
       action: 'Update conversation status',
     },
   ],

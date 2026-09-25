@@ -459,7 +459,7 @@ describe('inbox members (ADMIN-2)', () => {
 
   it('get members keeps GET /inbox_members/:inbox_id and unwraps payload', async () => {
     const { output, calls } = await runChatwootNode({
-      params: { resource: 'inbox', operation: 'getMembers', inboxId: 3 },
+      params: { resource: 'inbox', operation: 'getMembers', inboxId: 3, simplifyOutput: true },
       responses: [{ method: 'GET', url: '/inbox_members/3', body: { payload: [agent(1)] } }],
     });
     expect(calls[0].url).toBe(`${APP}/inbox_members/3`);
@@ -858,6 +858,16 @@ describe('inbox update (ADMIN-5, EVOCW-12)', () => {
     expect(calls).toHaveLength(0);
     expect(json(output)[0].error).toContain('working_hours must be a JSON array');
   });
+
+  it('CSAT config replacement keeps an explicitly supplied WhatsApp template and survey rules', async () => {
+    const config = { message: 'Rate us', survey_rules: { operator: 'contains', values: ['billing'] }, template: { name: 'csat', language: 'es', status: 'approved' } };
+    const { calls } = await runChatwootNode({
+      params: { resource: 'inbox', operation: 'update', inboxId: 3, updateFields: { csat_config: JSON.stringify(config) } },
+      responses: [{ method: 'PATCH', url: '/inboxes/3', body: apiInbox({ csat_config: config }) }],
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body).toEqual({ csat_config: config });
+  });
 });
 
 describe('inbox management endpoints (ADMIN-10, RELEASE-17)', () => {
@@ -1020,7 +1030,7 @@ describe('webhook', () => {
   it('get many unwraps payload.webhooks (one item per webhook, with secret)', async () => {
     const hooks = [webhook(), webhook({ id: 10, inbox: { id: 3, name: 'Evolution' } })];
     const { output, calls } = await runChatwootNode({
-      params: { resource: 'webhook', operation: 'getAll' },
+      params: { resource: 'webhook', operation: 'getAll', simplifyOutput: true },
       responses: [{ method: 'GET', url: '/webhooks', body: { payload: { webhooks: hooks } } }],
     });
     expect(calls[0].url).toBe(`${APP}/webhooks`);
@@ -1037,6 +1047,7 @@ describe('webhook', () => {
       params: {
         resource: 'webhook',
         operation: 'create',
+        simplifyOutput: true,
         url: 'https://n8n.example.com/webhook/abc',
         subscriptions: ['inbox_created', 'conversation_typing_on'],
         additionalFields: { name: 'n8n inbox events', inbox_id: 3 },
@@ -1059,6 +1070,7 @@ describe('webhook', () => {
       params: {
         resource: 'webhook',
         operation: 'update',
+        simplifyOutput: true,
         webhookId: 9,
         updateFields: { subscriptions: ['inbox_updated'], name: 'renamed' },
       },
@@ -1075,6 +1087,7 @@ describe('webhook', () => {
       params: {
         resource: 'webhook',
         operation: 'update',
+        simplifyOutput: true,
         webhookId: 9,
         updateFields: { inbox_id: '', url: 'https://n8n.example.com/webhook/new' },
       },
@@ -1273,6 +1286,28 @@ describe('agent', () => {
     });
     expect(calls[0].url).toBe(`${APP}/agents/20`);
     expect(calls[0].body).toEqual({ availability: 'offline', custom_role_id: null });
+  });
+
+  it.each([31, null, undefined])('update preserves the existing custom role %s when omitted', async (customRoleId) => {
+    const { calls } = await runChatwootNode({
+      params: { resource: 'agent', operation: 'update', agentId: 20, updateFields: { availability: 'busy' } },
+      responses: [
+        { method: 'GET', url: '/agents', body: [agent(1), { ...agent(20), custom_role_id: customRoleId }] },
+        { method: 'PATCH', url: '/agents/20', body: agent(20) },
+      ],
+    });
+    expect(calls.map((call) => call.method)).toEqual(['GET', 'PATCH']);
+    expect(calls[1].body).toEqual({ availability: 'busy', ...(customRoleId ? { custom_role_id: customRoleId } : {}) });
+  });
+
+  it('does not update an agent if its current custom role could not be read', async () => {
+    const { calls, output } = await runChatwootNode({
+      continueOnFail: true,
+      params: { resource: 'agent', operation: 'update', agentId: 20, updateFields: { name: 'Ana' } },
+      responses: [{ method: 'GET', url: '/agents', body: [agent(1)] }],
+    });
+    expect(calls).toHaveLength(1);
+    expect(output[0][0].json.error).toContain('custom role could not be preserved');
   });
 
   it('delete is not retried and emits a success item', async () => {

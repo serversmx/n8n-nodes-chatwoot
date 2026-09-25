@@ -71,7 +71,7 @@ export const getAllOperation: INodeProperties[] = [
         type: 'options',
         default: 'name',
         options: CONTACT_SORT_OPTIONS,
-        description: 'Sort contacts by field (prefix with - for descending)',
+        description: 'Sort contacts by field (prefix with - for descending). Defaults to Created At (Oldest) when omitted. Activity-based sorts can move contacts between pages while Return All runs.',
       },
     ],
   },

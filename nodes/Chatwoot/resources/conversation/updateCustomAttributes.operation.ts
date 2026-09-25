@@ -34,7 +34,7 @@ export const updateCustomAttributesOperation: INodeProperties[] = [
     displayName: 'Merge With Existing',
     name: 'merge',
     type: 'boolean',
-    default: true,
+    default: false,
     displayOptions: {
       show: {
         resource: ['conversation'],

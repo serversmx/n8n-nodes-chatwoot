@@ -19,7 +19,7 @@ export const listCategoriesOperation: INodeProperties[] = [
     displayName: 'Locale',
     name: 'locale',
     type: 'string',
-    default: '',
+    default: 'en',
     displayOptions: {
       show: {
         resource: ['helpCenter'],

@@ -110,7 +110,7 @@ export const customFilterFields: INodeProperties[] = [
       },
     },
     description:
-      'Saved conditions in the format the Chatwoot dashboard uses: {"payload": [{"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"]}]}. Same conditions as Conversation > Filter or Contact > Filter; a bare array of conditions is wrapped in "payload", and the node removes the query_operator of the last condition (Chatwoot 4.17+ rejects it).',
+      'Saved conditions in the format the Chatwoot dashboard uses: {"payload": [{"attribute_key": "status", "filter_operator": "equal_to", "values": ["open"]}]}. Conversation and Contact require a non-empty payload and the same valid conditions as their Filter operations. A bare array is wrapped in "payload"; the final query_operator is removed. Report queries are kept as supplied.',
   },
   // Update
   {
@@ -139,7 +139,7 @@ export const customFilterFields: INodeProperties[] = [
         type: 'json',
         default: '',
         description:
-          'Saved conditions in the format the Chatwoot dashboard uses: {"payload": [...]} (a bare array of conditions is wrapped), replacing the current ones',
+          'Saved conditions as {"payload": [...]} (a bare array is wrapped), replacing the current ones. The node reads the saved filter type to validate non-empty Conversation or Contact conditions; Report queries are kept as supplied.',
       },
     ],
   },

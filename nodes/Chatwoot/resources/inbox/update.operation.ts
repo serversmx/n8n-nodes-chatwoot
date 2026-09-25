@@ -86,7 +86,7 @@ export const updateOperation: INodeProperties[] = [
         type: 'json',
         default: '{}',
         description:
-          'CSAT survey settings, e.g. {"display_type": "emoji", "message": "Please rate us", "button_text": "Rate", "language": "en", "survey_rules": {"operator": "contains", "values": ["billing"]}}. Keys not sent fall back to Chatwoot defaults.',
+          'Replaces the whole CSAT config. Keys not sent reset to Chatwoot defaults, including survey_rules; a WhatsApp CSAT template is removed unless template is included. Use Inbox > Get and include the settings to keep. Example: {"display_type": "emoji", "message": "Please rate us", "button_text": "Rate", "language": "en", "survey_rules": {"operator": "contains", "values": ["billing"]}}.',
       },
       {
         displayName: 'Allow Messages After Resolved',

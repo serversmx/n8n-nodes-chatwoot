@@ -1108,11 +1108,13 @@ const allMessages = Array.from({ length: TOTAL_MESSAGES }, (_, i) => ({
   created_at: 1_700_000_000 + (i + 1) * 60,
 }));
 
-/** Simulates Chatwoot MessageFinder: 20 messages before the cursor, returned ascending. */
+/** Simulates Chatwoot MessageFinder: 20 before or 100 after, returned ascending. */
 function messageFinder(messages = allMessages) {
   return (call: RecordedCall): { body: unknown } => {
     const before = call.qs?.before === undefined ? Infinity : Number(call.qs.before);
-    const page = messages.filter((message) => message.id < before).slice(-20);
+    const page = call.qs?.after !== undefined
+      ? messages.filter((message) => message.id > Number(call.qs?.after)).slice(0, 100)
+      : messages.filter((message) => message.id < before).slice(-20);
     return { body: { meta: {}, payload: page } };
   };
 }
@@ -1171,17 +1173,17 @@ describe('chatwootApiRequestAllMessages', () => {
       after: 10,
     });
     expect(ids(fromEleven)).toEqual(Array.from({ length: 35 }, (_, i) => i + 11));
-    expect(afterTen.calls).toHaveLength(2);
+    expect(afterTen.calls).toHaveLength(1);
   });
 
-  it('before/after passed in qs drive the cursor instead of reaching the API', async () => {
+  it('uses native after and filters the exclusive before bound client-side', async () => {
     const mock = messagesMock();
     const result = await chatwootApiRequestAllMessages.call(mock.ctx, 9, undefined, {
       qs: { after: 20, before: 40, filter_internal_messages: true },
     });
     expect(ids(result)).toEqual(Array.from({ length: 19 }, (_, i) => i + 21));
     expect(mock.calls.map((call) => call.qs)).toEqual([
-      { filter_internal_messages: true, before: 40 },
+      { filter_internal_messages: true, after: 20 },
     ]);
   });
 
@@ -1582,7 +1584,7 @@ describe('test harness', () => {
   it('webhook mock drives ChatwootTrigger.webhook()', async () => {
     const trigger = new ChatwootTrigger();
     const mock = createMockWebhookFunctions({
-      params: { events: ['message_created'], options: { includeRawBody: true } },
+      params: { events: ['message_created'], options: { includeRawBody: true, verifySignature: false } },
       body: { event: 'message_created', id: 11 },
       headers: { 'X-Chatwoot-Signature': 'sig' },
     });

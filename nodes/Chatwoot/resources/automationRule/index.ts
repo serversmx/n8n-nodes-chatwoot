@@ -83,7 +83,7 @@ const EVENT_OPTIONS = [
 ];
 
 const CONDITIONS_DESCRIPTION =
-  'JSON array of conditions. Each item: {"attribute_key", "filter_operator", "values": [...], "query_operator"}. ' +
+  'Non-empty JSON array of conditions; at least one is required because an empty list runs on every event. Each item: {"attribute_key", "filter_operator", "values": [...], "query_operator"}. ' +
   'query_operator ("and"/"or") joins a condition with the next one: set it on every condition except the last, which uses null. ' +
   'Standard attribute_key values: status, inbox_id, assignee_id, team_id, priority, labels, content, message_type, private_note, ' +
   'email, phone_number, company_name, country_code, city, browser_language, conversation_language, mail_subject, referer ' +

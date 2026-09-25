@@ -44,7 +44,7 @@ export const getAllOperation: INodeProperties[] = [
         returnAll: [false],
       },
     },
-    description: 'Max number of messages to return. The most recent messages are returned, oldest first.',
+    description: 'Max number of messages to return. With After Message ID, returns the oldest matching messages so the next run can continue from the last returned ID. Otherwise returns the most recent messages, oldest first.',
   },
   {
     displayName: 'Options',
@@ -64,7 +64,7 @@ export const getAllOperation: INodeProperties[] = [
         name: 'after',
         type: 'number',
         default: 0,
-        description: 'Only return messages newer than this message ID (e.g. the last message already processed)',
+        description: 'Only return messages newer than this message ID, starting with the oldest match. Use the last returned ID for the next incremental run.',
       },
       {
         displayName: 'Before Message ID',

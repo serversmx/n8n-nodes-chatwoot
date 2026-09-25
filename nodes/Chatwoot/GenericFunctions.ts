@@ -406,6 +406,9 @@ export function getChatwootErrorHint(
     case 400:
       return 'Chatwoot could not process the request. Check the parameters sent by this operation.';
     case 401:
+      if (message.includes('invalid user ids')) {
+        return 'One or more User IDs are not agents of this account. Use Agent → Get Many to find valid IDs for this account.';
+      }
       if (/invalid access[ _]token/.test(message)) {
         return hint(
           api === 'platform'
@@ -567,6 +570,11 @@ export function buildChatwootApiError(
     descriptionLines.push(
       `Retried ${info.retries} time${info.retries === 1 ? '' : 's'} with exponential backoff before giving up.`,
     );
+    if (info.method === 'DELETE' && status === 404) {
+      descriptionLines.push(
+        'An earlier attempt may have completed the deletion before the server returned an error. Verify the resource before retrying; a 404 can also refer to a missing parent resource.',
+      );
+    }
   } else if (RETRYABLE_GATEWAY_STATUSES.has(status) && !IDEMPOTENT_METHODS.has(info.method)) {
     descriptionLines.push(
       `Not retried automatically because ${info.method} requests are not idempotent.`,
@@ -1076,7 +1084,7 @@ export interface AllItemsOptions {
   api?: ChatwootApi;
   /** Stop once this many items were collected and return the first `limit`. */
   limit?: number;
-  /** Maximum pages to fetch before failing with a NodeOperationError. Default: DEFAULT_MAX_PAGES. */
+  /** Explicit hard cap. By default the 1000-page safety cap grows to cover server-reported totals. */
   maxPages?: number;
   /** Known page size (15 contacts, 25 conversations...) for early end detection. */
   pageSize?: number;
@@ -1105,7 +1113,7 @@ async function requestAllPages(
   options: AllItemsOptions,
 ): Promise<IDataObject[]> {
   const limit = options.limit && options.limit > 0 ? options.limit : undefined;
-  const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
+  let maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
   const pageParam = options.pageParam ?? 'page';
   const startPage = options.startPage ?? 1;
   const requestOptions: ChatwootRequestOptions = {
@@ -1171,6 +1179,16 @@ async function requestAllPages(
     if (!pageSize) pageSize = items.length;
 
     const meta = getPaginationMeta(response);
+    // Fix the budget once, from the initial snapshot: continually growing totals must not
+    // turn Return All into an unbounded poll. An explicit caller cap always takes precedence.
+    if (pagesFetched === 1 && options.maxPages === undefined) {
+      const expectedPages = meta.totalPages ?? (
+        meta.totalCount !== undefined ? Math.ceil(meta.totalCount / (meta.perPage || pageSize)) : undefined
+      );
+      if (expectedPages !== undefined && Number.isFinite(expectedPages)) {
+        maxPages = Math.max(maxPages, expectedPages - startPage + 2);
+      }
+    }
     if (meta.hasMore === false) break;
     if (meta.hasMore !== true) {
       if (
@@ -1199,8 +1217,8 @@ async function requestAllPages(
  * 'audit_logs') or a function; `{ data: { payload } }` responses are detected automatically.
  * Ends on an empty/short/repeated page or on meta (has_more, current_page/total_pages, counts).
  * With `options.limit`, pages are fetched until `limit` items are collected (first N returned).
- * Exceeding `options.maxPages` (default 1000) throws a NodeOperationError: results are never
- * silently truncated.
+ * Exceeding `options.maxPages` throws instead of truncating. The default 1000-page safety cap
+ * expands for a known server total; an explicit maxPages remains a hard cap.
  */
 export async function chatwootApiRequestAllItems(
   this: ChatwootContext,
@@ -1239,11 +1257,11 @@ export interface MessagePaginationOptions {
   endpoint?: string;
   /** Start cursor: only messages with id < before. */
   before?: number;
-  /** Lower bound: only messages with id > after (applied client-side while walking back). */
+  /** Lower bound: only messages with id > after; Limit returns the oldest matching messages. */
   after?: number;
   /**
    * Extra query parameters (e.g. { filter_internal_messages: true }). `before`/`after` found here are
-   * used as the options above: sending them as-is would switch Chatwoot's MessageFinder to another mode.
+   * used as the options above. The public API only accepts before, so after is filtered client-side there.
    */
   qs?: IDataObject;
   /** Maximum pages to fetch before failing with a NodeOperationError. Default: DEFAULT_MAX_PAGES. */
@@ -1271,8 +1289,10 @@ function sortMessagesChronologically(messages: IDataObject[]): IDataObject[] {
  * Cursor-based pagination for conversation messages.
  * Chatwoot returns each page (20 messages) in ascending order, so the next `before` cursor is the
  * smallest id of the page. Messages are deduplicated by id and returned in chronological ascending
- * order. With `limit`, the `limit` MOST RECENT messages are returned (still ascending). Stops on an
- * empty or short page, a cursor that does not decrease, the `after` bound, or the limit.
+ * order. With `limit`, the MOST RECENT messages are returned unless `after` is set: incremental
+ * reads return the OLDEST matching messages so advancing the cursor never skips the backlog.
+ * Application API after reads use its native 100-message forward pages. Public API only exposes
+ * before, so it must walk back to the after bound before applying the limit.
  */
 export async function chatwootApiRequestAllMessages(
   this: ChatwootContext,
@@ -1290,12 +1310,13 @@ export async function chatwootApiRequestAllMessages(
   const endpoint = options.endpoint ?? `/conversations/${conversationId}/messages`;
   const maxLimit = limit && limit > 0 ? limit : undefined;
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES;
-  const pageSize = options.pageSize ?? MESSAGES_PAGE_SIZE;
-  // Chatwoot switches to other finder modes (after: 100 ascending, after+before: up to 1000) when
-  // these reach the API, which breaks the page-size end detection: they are always applied here.
   const extraQs: IDataObject = { ...options.qs };
   const after = options.after ?? toNumber(extraQs.after);
   let before = options.before ?? toNumber(extraQs.before);
+  const forward = after !== undefined && options.api !== 'public';
+  const pageSize = options.pageSize ?? (forward ? 100 : MESSAGES_PAGE_SIZE);
+  let afterCursor = after;
+  if (after !== undefined && before !== undefined && before <= after) return [];
   delete extraQs.after;
   delete extraQs.before;
 
@@ -1318,7 +1339,8 @@ export async function chatwootApiRequestAllMessages(
     }
 
     const qs: IDataObject = { ...extraQs };
-    if (before !== undefined) qs.before = before;
+    if (forward) qs.after = afterCursor;
+    else if (before !== undefined) qs.before = before;
     const response = await chatwootRequest.call(this, 'GET', endpoint, {}, qs, {
       api: options.api ?? 'application',
       itemIndex: options.itemIndex,
@@ -1329,11 +1351,18 @@ export async function chatwootApiRequestAllMessages(
     if (messages.length === 0) break;
 
     let smallestId: number | undefined;
+    let largestId: number | undefined;
     let reachedAfter = false;
+    let reachedBefore = false;
     const fresh: IDataObject[] = [];
     for (const message of messages) {
       const id = toNumber(message.id);
       if (id !== undefined && (smallestId === undefined || id < smallestId)) smallestId = id;
+      if (id !== undefined && (largestId === undefined || id > largestId)) largestId = id;
+      if (forward && id !== undefined && before !== undefined && id >= before) {
+        reachedBefore = true;
+        continue;
+      }
       if (id !== undefined && after !== undefined && id <= after) {
         reachedAfter = true;
         continue;
@@ -1348,15 +1377,22 @@ export async function chatwootApiRequestAllMessages(
     pages.push(fresh);
     uniqueCount += fresh.length;
 
-    if (maxLimit !== undefined && uniqueCount >= maxLimit) break;
+    if (maxLimit !== undefined && uniqueCount >= maxLimit && (forward || after === undefined)) break;
+    if (forward) {
+      if (reachedBefore || messages.length < pageSize) break;
+      if (largestId === undefined || (afterCursor !== undefined && largestId <= afterCursor)) break;
+      afterCursor = largestId;
+      continue;
+    }
     if (reachedAfter || messages.length < pageSize) break;
     if (smallestId === undefined || (before !== undefined && smallestId >= before)) break;
     before = smallestId;
   }
 
-  // Pages were fetched newest-first and each page is ascending
-  const ordered = sortMessagesChronologically(pages.reverse().flat());
-  return maxLimit !== undefined ? ordered.slice(-maxLimit) : ordered;
+  const ordered = sortMessagesChronologically((forward ? pages : pages.reverse()).flat());
+  return maxLimit !== undefined
+    ? after !== undefined ? ordered.slice(0, maxLimit) : ordered.slice(-maxLimit)
+    : ordered;
 }
 
 // ============================================================================

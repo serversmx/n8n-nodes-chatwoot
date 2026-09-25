@@ -28,7 +28,7 @@ export const getOperation: INodeProperties[] = [
       },
     },
     description:
-      'Chatwoot cannot filter CSAT responses by conversation, so the node scans them newest first. A date range around the conversation makes the scan shorter.',
+      'Chatwoot cannot filter CSAT responses by conversation. Without a complete date range, the node first fetches the conversation and scans responses in its inbox from its creation date to now. Set both dates to override that range.',
     options: [
       {
         displayName: 'Since',

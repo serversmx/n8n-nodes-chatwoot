@@ -24,18 +24,18 @@ export const csatSurveyOperations: INodeProperties = {
       action: 'Download CSAT responses',
     },
     {
-      name: 'Get Many',
-      value: 'getAll',
-      description:
-        'List CSAT survey responses (rating, feedback, contact, assigned agent, conversation_id) filtered by date range, agents, inbox, team or rating',
-      action: 'Get many CSAT responses',
-    },
-    {
       name: 'Get by Conversation',
       value: 'get',
       description:
         'Get the CSAT survey response of one conversation (no output item when the contact did not answer)',
       action: 'Get CSAT survey',
+    },
+    {
+      name: 'Get Many',
+      value: 'getAll',
+      description:
+        'List CSAT survey responses (rating, feedback, contact, assigned agent, conversation_id) filtered by date range, agents, inbox, team or rating',
+      action: 'Get many CSAT responses',
     },
     {
       name: 'Metrics',

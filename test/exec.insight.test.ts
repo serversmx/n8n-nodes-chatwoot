@@ -3,9 +3,11 @@
  * slaPolicy, auditLog, company and helpCenter.
  * Response fixtures follow the Chatwoot 4.18.0 jbuilder views (see the comment above each builder).
  */
-import type { IDataObject } from 'n8n-workflow';
-import { NodeApiError, NodeOperationError } from 'n8n-workflow';
+import type { IDataObject, INodeParameters, INodePropertyOptions } from 'n8n-workflow';
+import { NodeApiError, NodeHelpers, NodeOperationError } from 'n8n-workflow';
 
+import { csatSurveyOperations } from '../nodes/Chatwoot/resources/csatSurvey';
+import { reportFields, reportOperations } from '../nodes/Chatwoot/resources/report';
 import { Chatwoot } from '../nodes/Chatwoot/Chatwoot.node';
 import {
   csvRowsToObjects,
@@ -289,7 +291,7 @@ describe('report', () => {
       },
     });
     await expect(new Chatwoot().execute.call(mock.ctx)).rejects.toThrow(
-      'Options → Entity ID is required when Type is "agent"',
+      'Entity ID (or saved Options → Entity ID) is required when Type is "agent"',
     );
     expect(mock.calls).toHaveLength(0);
   });
@@ -829,9 +831,14 @@ describe('csatSurvey', () => {
   it('Get by Conversation outputs nothing when the conversation has no CSAT response', async () => {
     const { output, calls } = await runChatwootNode({
       params: { resource: 'csatSurvey', operation: 'get', conversationId: 9 },
-      responses: [{ url: `${V1}/csat_survey_responses`, body: [csatResponse(1, 5)] }],
+      responses: [
+        { url: `${V1}/conversations/9`, body: { id: 9, created_at: SINCE_TS, inbox_id: 2 } },
+        { url: `${V1}/csat_survey_responses`, body: [csatResponse(1, 5)] },
+      ],
     });
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1].qs).toMatchObject({ since: SINCE_TS, inbox_id: 2, sort: '-created_at' });
+    expect(Number(calls[1].qs?.until)).toBeGreaterThanOrEqual(Math.floor(Date.now() / 1000));
     expect(output[0]).toEqual([]);
   });
 
@@ -892,7 +899,7 @@ describe('csatSurvey', () => {
       params: { resource: 'csatSurvey', operation: 'download' },
     });
     await expect(new Chatwoot().execute.call(mock.ctx)).rejects.toThrow(
-      'CSAT Download requires Options → Since and Until',
+      'CSAT Download requires Since and Until',
     );
     expect(mock.calls).toHaveLength(0);
 
@@ -1076,7 +1083,7 @@ describe('slaPolicy getAll', () => {
       },
     ];
     const { output, calls } = await runChatwootNode({
-      params: { resource: 'slaPolicy', operation: 'getAll' },
+      params: { resource: 'slaPolicy', operation: 'getAll', simplifyOutput: true },
       responses: [{ method: 'GET', url: `${V1}/sla_policies`, body: { payload: policies } }],
     });
     expect(calls[0].url).toBe(`${V1}/sla_policies`);
@@ -1616,10 +1623,10 @@ describe('helpCenter categories', () => {
     expect(deleted.output[0][0].json).toEqual({ success: true, id: 7 });
   });
 
-  it('List Categories returns one item per category and no locale filter by default', async () => {
+  it('List Categories preserves the legacy English locale and can simplify the response', async () => {
     const categories = [category(1, 'es'), category(2, 'en')];
     const { output, calls } = await runChatwootNode({
-      params: { resource: 'helpCenter', operation: 'listCategories', portalSlug: 'acme-help' },
+      params: { resource: 'helpCenter', operation: 'listCategories', portalSlug: 'acme-help', simplifyOutput: true },
       responses: [
         {
           url: `${V1}/portals/acme-help/categories`,
@@ -1627,7 +1634,7 @@ describe('helpCenter categories', () => {
         },
       ],
     });
-    expect(calls[0].qs).toBeUndefined();
+    expect(calls[0].qs).toEqual({ locale: 'en' });
     expect(output[0].map((item) => item.json)).toEqual(categories);
   });
 });
@@ -1712,7 +1719,7 @@ describe('helpCenter portals', () => {
 
   it('List Portals unwraps payload; Delete Portal answers success', async () => {
     const list = await runChatwootNode({
-      params: { resource: 'helpCenter', operation: 'listPortals' },
+      params: { resource: 'helpCenter', operation: 'listPortals', simplifyOutput: true },
       responses: [
         {
           url: `${V1}/portals`,
@@ -2266,5 +2273,116 @@ describe('report CSV date range guard', () => {
     });
     expect(calls).toHaveLength(0);
     expect(output[0][0].json.error).toBe('Since and Until are required for this report');
+  });
+});
+
+describe('release review: insight compatibility and validation', () => {
+  const normalizedNode = (params: INodeParameters) => {
+    const description = new Chatwoot().description;
+    const mock = createMockExecuteFunctions({ params });
+    const parameters = NodeHelpers.getNodeParameters(description.properties, params, true, false,
+      { typeVersion: 1 }, description) ?? {};
+    const node = { ...mock.ctx.getNode(), parameters };
+    return { parameters, issues: NodeHelpers.getNodeParametersIssues(description.properties, node, description) };
+  };
+
+  it('exposes required dates for new CSAT downloads without invalidating saved collection dates', async () => {
+    const fresh = normalizedNode({ resource: 'csatSurvey', operation: 'download' });
+    expect(fresh.issues?.parameters).toHaveProperty('since');
+    expect(fresh.issues?.parameters).toHaveProperty('until');
+    const saved = normalizedNode({ resource: 'csatSurvey', operation: 'download', options: { since: SINCE, until: UNTIL } });
+    expect(saved.issues).toBeNull();
+    expect(saved.parameters.options).toEqual({ since: SINCE, until: UNTIL });
+    const { calls } = await runChatwootNode({
+      params: { resource: 'csatSurvey', operation: 'download', since: SINCE, until: UNTIL, csvOutput: 'rows' },
+      responses: [{ url: '/csat_survey_responses/download', body: 'Rating\n5\n' }],
+    });
+    expect(calls[0].qs).toMatchObject({ since: SINCE_TS, until: UNTIL_TS });
+  });
+
+  it('preserves saved entity IDs and exposes the required field for new entity reports', async () => {
+    const saved = normalizedNode({ resource: 'report', operation: 'accountSummary', type: 'agent', since: SINCE, until: UNTIL, options: { id: 7 } });
+    expect(saved.issues).toBeNull();
+    expect(saved.parameters.options).toEqual({ id: 7 });
+    const fresh = normalizedNode({ resource: 'report', operation: 'accountSummary', type: 'agent', since: SINCE, until: UNTIL });
+    expect(fresh.parameters).toHaveProperty('entityId');
+    const { calls } = await runChatwootNode({
+      params: { resource: 'report', operation: 'accountSummary', type: 'agent', since: SINCE, until: UNTIL, entityId: 9 },
+      responses: [{ api: 'applicationV2', url: '/reports/summary', body: {} }],
+    });
+    expect(calls[0].qs).toMatchObject({ type: 'agent', id: 9 });
+  });
+
+  it('permits Reporting Events without a date range in n8n and on the request', async () => {
+    expect(normalizedNode({ resource: 'report', operation: 'reportingEvents' }).issues).toBeNull();
+    const { calls } = await runChatwootNode({
+      params: { resource: 'report', operation: 'reportingEvents', limit: 1 },
+      responses: [{ url: '/reporting_events', body: { payload: [{ id: 1 }], meta: { total_count: 1 } } }],
+    });
+    expect(calls[0].qs).toEqual({ page: 1 });
+  });
+
+  it('keeps operation labels sorted and documents personal review and open-only counts', () => {
+    const names = (csatSurveyOperations.options as INodePropertyOptions[]).map((option) => option.name);
+    expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    const operations = reportOperations.options as INodePropertyOptions[];
+    expect(operations.find((operation) => operation.value === 'yearInReview')?.description).toMatch(/personal.*user settings.*without refreshing/);
+    expect(operations.find((operation) => operation.value === 'conversationCounts')?.description).toMatch(/open conversations.*by assignee/);
+    expect(reportFields.find((field) => field.name === 'year')?.default).toBe(2025);
+  });
+
+  it('can explicitly clear the category locale to list every locale', async () => {
+    const { calls } = await runChatwootNode({
+      params: { resource: 'helpCenter', operation: 'listCategories', portalSlug: 'help', locale: '' },
+      responses: [{ url: '/portals/help/categories', body: { payload: [] } }],
+    });
+    expect(calls[0].qs).toBeUndefined();
+  });
+
+  it('retries drilldown beyond a full rate-limit window after ten pages', async () => {
+    let throttled = 0;
+    const { calls, sleeps, output } = await runChatwootNode({
+      params: { resource: 'report', operation: 'drilldown', since: SINCE, until: UNTIL, bucketTimestamp: SINCE, returnAll: true },
+      responses: [{ url: '/reports/drilldown', api: 'applicationV2', times: Infinity, reply: (call) => {
+        const page = pageOf(call);
+        if (page === 11 && throttled++ < 3) return { status: 429 };
+        return { body: { payload: range((page - 1) * 100 + 1, page * 100).map((id) => ({ id })), meta: { total_count: 1100, per_page: 100 } } };
+      } }],
+    });
+    expect(output[0]).toHaveLength(1100);
+    expect(calls).toHaveLength(14);
+    expect(sleeps).toHaveLength(3);
+    expect(sleeps.reduce((total, delay) => total + delay, 0)).toBeGreaterThanOrEqual(60000);
+  });
+
+  it('uses the same minute-window retry policy for non-paginated report calls', async () => {
+    const { sleeps } = await runChatwootNode({
+      params: { resource: 'report', operation: 'accountSummary', since: SINCE, until: UNTIL },
+      responses: [
+        { url: '/reports/summary', api: 'applicationV2', status: 429, times: 3 },
+        { url: '/reports/summary', api: 'applicationV2', body: { conversations_count: 1 } },
+      ],
+    });
+    expect(sleeps.reduce((total, delay) => total + delay, 0)).toBeGreaterThanOrEqual(60000);
+  });
+
+  it.each([
+    { since: UNTIL, until: SINCE, bucketTimestamp: SINCE, message: 'Since to be earlier than Until' },
+    { since: SINCE, until: SINCE, bucketTimestamp: SINCE, message: 'Since to be earlier than Until' },
+    { since: SINCE, until: UNTIL, bucketTimestamp: UNTIL, message: 'Bucket Start must be earlier than Until' },
+  ])('validates invalid drilldown ranges before HTTP: $message', async ({ message, ...dates }) => {
+    const mock = createMockExecuteFunctions({ description: new Chatwoot().description, params: { resource: 'report', operation: 'drilldown', ...dates } });
+    await expect(new Chatwoot().execute.call(mock.ctx)).rejects.toThrow(message);
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  it('explains empty drilldown validation errors, keeping the HTTP error and item context', async () => {
+    const { output } = await runChatwootNode({
+      continueOnFail: true,
+      params: { resource: 'report', operation: 'drilldown', since: SINCE, until: UNTIL, bucketTimestamp: '2026-08-01T00:00:00Z' },
+      responses: [{ url: '/reports/drilldown', api: 'applicationV2', status: 422 }],
+    });
+    expect(output[0][0].json.httpCode).toBe('422');
+    expect(output[0][0].json.description).toMatch(/administrator token.*Bucket Start plus Group By Period.*Timezone Offset/);
   });
 });
