@@ -98,7 +98,7 @@ import {
   resolveExecutionDelay,
 } from './resources/automationRule/helpers';
 import { buildCampaignBody, needsCurrentTriggerRules } from './resources/campaign/helpers';
-import { toUnixSeconds } from './resources/notification/helpers';
+import { toUnixSeconds as notificationToUnixSeconds } from './resources/notification/helpers';
 
 // Platform API Resource imports
 import { platformAccountOperations, platformAccountFields } from './resources/platformAccount';
@@ -120,12 +120,12 @@ import {
 // Reporting / insight helpers (report, csatSurvey, appliedSla, auditLog, company, helpCenter)
 import {
   buildCsvOutput,
-  parseIdList,
+  parseIdList as parseReportIdList,
   parseJsonObject,
-  parseStringList,
+  parseStringList as parseReportStringList,
   portalConfigFromResponse,
   requestFilteredPages,
-  toUnixSeconds,
+  toUnixSeconds as reportToUnixSeconds,
 } from './resources/report/helpers';
 
 // Execute helpers
@@ -1701,8 +1701,8 @@ export class Chatwoot implements INodeType {
           // overwritten by an option. Array params are sent as inbox_ids[]=1&inbox_ids[]=2.
           const buildQs = (extra: IDataObject = {}): IDataObject => {
             const qs: IDataObject = {};
-            const since = toUnixSeconds(this.getNodeParameter('since', i, ''), 'Since');
-            const until = toUnixSeconds(this.getNodeParameter('until', i, ''), 'Until');
+            const since = reportToUnixSeconds(this.getNodeParameter('since', i, ''), 'Since');
+            const until = reportToUnixSeconds(this.getNodeParameter('until', i, ''), 'Until');
             if (since !== undefined) qs.since = since;
             if (until !== undefined) qs.until = until;
             if (options.id) qs.id = options.id;
@@ -1710,8 +1710,8 @@ export class Chatwoot implements INodeType {
             if (options.timezone_offset !== undefined) qs.timezone_offset = options.timezone_offset;
             if (options.business_hours !== undefined) qs.business_hours = options.business_hours;
             if (options.days_before) qs.days_before = options.days_before;
-            const inboxIds = parseIdList(options.inbox_ids, 'Inbox IDs');
-            const labelIds = parseIdList(options.label_ids, 'Label IDs');
+            const inboxIds = parseReportIdList(options.inbox_ids, 'Inbox IDs');
+            const labelIds = parseReportIdList(options.label_ids, 'Label IDs');
             if (inboxIds.length > 0) qs.inbox_ids = inboxIds;
             if (labelIds.length > 0) qs.label_ids = labelIds;
             return { ...qs, ...extra };
@@ -1781,7 +1781,7 @@ export class Chatwoot implements INodeType {
           } else if (operation === 'drilldown') {
             const type = getEntityType();
             const metric = this.getNodeParameter('metric', i) as string;
-            const bucketTimestamp = toUnixSeconds(this.getNodeParameter('bucketTimestamp', i, ''), 'Bucket Start');
+            const bucketTimestamp = reportToUnixSeconds(this.getNodeParameter('bucketTimestamp', i, ''), 'Bucket Start');
             if (bucketTimestamp === undefined) {
               throw new NodeOperationError(this.getNode(), 'Bucket Start is required for Drilldown', { itemIndex: i });
             }
@@ -1915,9 +1915,9 @@ export class Chatwoot implements INodeType {
             if (fields.archived !== undefined) portal.archived = fields.archived;
             const config: IDataObject = {};
             if (fields.default_locale) config.default_locale = String(fields.default_locale).trim();
-            const allowedLocales = parseStringList(fields.allowed_locales);
+            const allowedLocales = parseReportStringList(fields.allowed_locales);
             if (allowedLocales.length > 0) config.allowed_locales = allowedLocales;
-            if (fields.draft_locales !== undefined) config.draft_locales = parseStringList(fields.draft_locales);
+            if (fields.draft_locales !== undefined) config.draft_locales = parseReportStringList(fields.draft_locales);
             if (fields.layout) config.layout = fields.layout;
             for (const key of ['social_profiles', 'analytics']) {
               const value = parseJsonObject(fields[key], key);
@@ -1937,7 +1937,7 @@ export class Chatwoot implements INodeType {
             for (const key of ['parent_category_id', 'associated_category_id']) {
               if (Number(fields[key]) > 0) category[key] = Number(fields[key]);
             }
-            const relatedIds = parseIdList(fields.related_category_ids, 'Related Category IDs');
+            const relatedIds = parseReportIdList(fields.related_category_ids, 'Related Category IDs');
             if (relatedIds.length > 0) category.related_category_ids = relatedIds;
             return category;
           };
@@ -1956,7 +1956,7 @@ export class Chatwoot implements INodeType {
             const meta: IDataObject = {};
             if (fields.meta_title) meta.title = fields.meta_title;
             if (fields.meta_description) meta.description = fields.meta_description;
-            if (fields.meta_tags !== undefined) meta.tags = parseStringList(fields.meta_tags);
+            if (fields.meta_tags !== undefined) meta.tags = parseReportStringList(fields.meta_tags);
             return { article, meta };
           };
 
@@ -2114,7 +2114,7 @@ export class Chatwoot implements INodeType {
           ) {
             // Chatwoot 4.14+: /portals/:slug/articles/bulk_actions/* answer `head :ok`
             const portalSlug = getPortalSlug();
-            const ids = parseIdList(this.getNodeParameter('articleIds', i), 'Article IDs');
+            const ids = parseReportIdList(this.getNodeParameter('articleIds', i), 'Article IDs');
             if (ids.length === 0) {
               throw new NodeOperationError(this.getNode(), 'Article IDs must contain at least one ID', { itemIndex: i });
             }
@@ -2200,12 +2200,12 @@ export class Chatwoot implements INodeType {
             const qs: IDataObject = {};
 
             // The legacy single "auditable_type" filter is merged into types[]
-            const types = new Set<string>(parseStringList(filters.types));
+            const types = new Set<string>(parseReportStringList(filters.types));
             if (filters.auditable_type) types.add(filters.auditable_type as string);
             if (types.size > 0) qs.types = [...types];
             if (filters.q) qs.q = filters.q;
-            const since = toUnixSeconds(filters.since, 'Since');
-            const until = toUnixSeconds(filters.until, 'Until');
+            const since = reportToUnixSeconds(filters.since, 'Since');
+            const until = reportToUnixSeconds(filters.until, 'Until');
             if (since !== undefined) qs.since = since;
             if (until !== undefined) qs.until = until;
             if (filters.sort) qs.sort = filters.sort;
@@ -2238,15 +2238,15 @@ export class Chatwoot implements INodeType {
           const options = this.getNodeParameter('options', i, {}) as IDataObject;
           const buildCsatQs = (): IDataObject => {
             const qs: IDataObject = {};
-            const since = toUnixSeconds(options.since, 'Since');
-            const until = toUnixSeconds(options.until, 'Until');
+            const since = reportToUnixSeconds(options.since, 'Since');
+            const until = reportToUnixSeconds(options.until, 'Until');
             if (since !== undefined) qs.since = since;
             if (until !== undefined) qs.until = until;
-            const userIds = parseIdList(options.user_ids, 'Agent IDs');
+            const userIds = parseReportIdList(options.user_ids, 'Agent IDs');
             if (userIds.length > 0) qs.user_ids = userIds;
             if (options.inbox_id) qs.inbox_id = options.inbox_id;
             if (options.team_id) qs.team_id = options.team_id;
-            const ratings = parseStringList(options.rating);
+            const ratings = parseReportStringList(options.rating);
             if (ratings.length > 0) qs.rating = ratings;
             return qs;
           };
@@ -2453,7 +2453,7 @@ export class Chatwoot implements INodeType {
             );
           } else if (operation === 'snooze') {
             const notificationId = validateId(this.getNodeParameter('notificationId', i), 'Notification ID');
-            const snoozedUntil = toUnixSeconds(this.getNodeParameter('snoozedUntil', i), 'Snoozed Until');
+            const snoozedUntil = notificationToUnixSeconds(this.getNodeParameter('snoozedUntil', i), 'Snoozed Until');
             responseData = await chatwootApiRequest.call(
               this,
               'POST',
@@ -2782,7 +2782,7 @@ export class Chatwoot implements INodeType {
             responseData = (Array.isArray(response.payload) ? response.payload : []) as IDataObject[];
           } else if (operation === 'deleteCustomAttributes') {
             const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
-            const keys = parseStringList(this.getNodeParameter('customAttributeKeys', i));
+            const keys = parseReportStringList(this.getNodeParameter('customAttributeKeys', i));
             if (keys.length === 0) {
               throw new NodeOperationError(this.getNode(), 'Custom Attribute Keys must contain at least one key', { itemIndex: i });
             }
@@ -2891,8 +2891,8 @@ export class Chatwoot implements INodeType {
           // index lists only breaches (missed / active_with_misses) with meta.count, 25 per page.
           const options = this.getNodeParameter('options', i, {}) as IDataObject;
           const qs: IDataObject = {};
-          const since = toUnixSeconds(options.since, 'Since');
-          const until = toUnixSeconds(options.until, 'Until');
+          const since = reportToUnixSeconds(options.since, 'Since');
+          const until = reportToUnixSeconds(options.until, 'Until');
           if (since !== undefined) qs.since = since;
           if (until !== undefined) qs.until = until;
           if (options.inbox_id) qs.inbox_id = options.inbox_id;
@@ -2951,8 +2951,8 @@ export class Chatwoot implements INodeType {
         // =====================================================================
         else if (resource === 'summaryReport') {
           // Integer Unix seconds; an empty or invalid date fails here instead of sending NaN
-          const since = toUnixSeconds(this.getNodeParameter('since', i), 'Since');
-          const until = toUnixSeconds(this.getNodeParameter('until', i), 'Until');
+          const since = reportToUnixSeconds(this.getNodeParameter('since', i), 'Since');
+          const until = reportToUnixSeconds(this.getNodeParameter('until', i), 'Until');
           if (since === undefined || until === undefined) {
             throw new NodeOperationError(this.getNode(), 'Since and Until are required', { itemIndex: i });
           }
