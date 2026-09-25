@@ -9,7 +9,7 @@ import type {
 export class ChatwootApi implements ICredentialType {
   name = 'chatwootApi';
   displayName = 'Chatwoot API';
-  icon: Icon = 'file:../nodes/Chatwoot/chatwoot.svg';
+  icon: Icon = { light: 'file:../nodes/Chatwoot/chatwoot.svg', dark: 'file:../nodes/Chatwoot/chatwoot.svg' };
   documentationUrl = 'https://www.chatwoot.com/developers/api/';
   properties: INodeProperties[] = [
     {
@@ -46,6 +46,9 @@ export class ChatwootApi implements ICredentialType {
         'User token: Chatwoot → Profile Settings → Access Token. Agent bot token: Settings → Bots → the bot access token (visible to administrators), or the access_token returned by the Platform API.',
       required: true,
     },
+    // An `options` dropdown ('agentBot' | 'user'), not a secret; the rule's name-based heuristic matches
+    // "token" in the field name. `typeOptions.password` has no effect on a select field.
+    // eslint-disable-next-line
     {
       displayName: 'Token Type',
       name: 'tokenType',

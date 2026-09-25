@@ -212,6 +212,10 @@ export async function assertCaptainAssignmentSupported(
   let rawVersion: unknown;
   try {
     const baseUrl = normalizeBaseUrl(String(credentials.baseUrl ?? ''));
+    // GET {baseUrl}/api is Chatwoot's unauthenticated version endpoint; `getCredentials` above is only
+    // used for baseUrl, and sending the api_access_token header here would be misleading (the request
+    // needs no auth).
+    // eslint-disable-next-line
     const info = (await this.helpers.httpRequest({
       method: 'GET',
       url: `${baseUrl}/api`,
@@ -253,6 +257,8 @@ export async function assertCaptainAssignmentSupported(
         { itemIndex },
       );
     }
+    // `error` is already a NodeApiError from chatwootApiRequest (see GenericFunctions.chatwootRequest).
+    // eslint-disable-next-line
     throw error;
   }
 

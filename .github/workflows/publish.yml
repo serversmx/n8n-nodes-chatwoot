@@ -1,0 +1,39 @@
+name: Publish
+
+# Publishes to npm with provenance via npm's Trusted Publishing (OIDC) — no NPM_TOKEN secret needed.
+# One-time setup on npmjs.com is required first: package Settings -> Trusted Publishers -> add
+# GitHub Actions, this repository, workflow file "publish.yml", environment left blank. See the
+# "Release process" section of README.md.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write # required for npm's OIDC trusted-publisher exchange and --provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          registry-url: 'https://registry.npmjs.org'
+
+      # --ignore-scripts: no native build needed (a transitive devDependency, isolated-vm, may fail to compile)
+      - run: npm ci --ignore-scripts
+
+      - run: npm test
+
+      - run: npm run build
+
+      # Trusted Publishing needs a recent npm CLI (>=11.5.1); the version bundled with Node's
+      # setup-node action may be older.
+      - run: npm install -g npm@latest
+
+      - run: npm publish --provenance --access public

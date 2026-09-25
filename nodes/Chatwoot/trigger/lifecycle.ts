@@ -58,6 +58,8 @@ export async function deleteAccountWebhook(this: ChatwootContext, id: number): P
   try {
     await chatwootApiRequest.call(this, 'DELETE', `/webhooks/${id}`);
   } catch (error) {
+    // `error` is already a NodeApiError from chatwootApiRequest (see GenericFunctions.chatwootRequest).
+    // eslint-disable-next-line
     if (getHttpStatus(error) !== 404) throw error;
   }
 }

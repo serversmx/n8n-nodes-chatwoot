@@ -5,6 +5,166 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-09-25
+
+A large correctness and hardening release. An independent audit of 0.8.3 against the Chatwoot
+4.13–4.18 source found operations that always failed or silently returned wrong data, plus many
+API changes since 4.13. This release fixes every critical and high-severity issue found in this
+package, most of the medium ones, and adds the tooling n8n requires to verify community packages.
+
+### Fixed
+
+Critical (every call failed, or silently returned nothing/wrong data):
+
+- **Conversation \> Get Many / Filter** always returned an empty list. Chatwoot wraps the list in
+  `{ data: { meta, payload } }`; the node read a top-level `payload` that never existed. Fixed by
+  reading `data.payload` (and `data.meta` for counts). The **Status** filter also silently fell
+  back to Chatwoot's `open`-only default when left unset — it now explicitly sends `all` (see
+  Changed below).
+- **Message \> Get Many** duplicated large parts of the message history. The cursor-based
+  pagination sent the newest message's ID as `before`, which is the wrong direction for Chatwoot's
+  reverse-chronological pages; each "page" mostly re-fetched messages already returned. Fixed by
+  cursoring from the oldest message of each page.
+- **Every DELETE request silently dropped its body.** The shared request helper stripped the body
+  for `DELETE`, so any endpoint that needs one failed outright or reported false success:
+  **Team \> Delete Agent** (500 from Chatwoot), **Inbox \> Delete Agent** and
+  **Conversation Participant \> Remove** (200 OK, nothing removed), and Platform
+  **Account User \> Delete** (200 OK, nothing removed).
+- **Profile \> Fetch/Update/Set Availability** always 404'd. `/api/v1/profile` is not nested under
+  `/accounts/{id}` like every other Application API route; the node built the account-scoped URL
+  anyway. Fixed with a dedicated non-account-scoped request path; Update and Set Availability also
+  now send the `{ profile: {...} }` wrapper Chatwoot's controller requires.
+- **Inbox \> Add Agent / Delete Agent** always 404'd. Chatwoot exposes `/inbox_members` as a
+  collection route with `inbox_id` in the body, not `/inbox_members/{inboxId}`. Fixed to match, and
+  added the missing **Update Agents** (replace the member list) operation.
+- **Platform \> Account Agent Bot** (all 5 operations) always 404'd: agent bots are a top-level
+  Platform API resource (`/platform/api/v1/agent_bots`), never nested under an account.
+- **Search** (Conversations/Contacts/Messages) crashed with `payload.slice is not a function`, or
+  returned nothing, because each Chatwoot search endpoint returns a differently-shaped payload
+  (an object keyed by type, not a flat array). Each search type now has its own extraction.
+- **Contact \> Import** sent the CSV as a JSON string; Chatwoot requires a multipart upload. Fixed
+  to send it as `multipart/form-data` using n8n's binary-data input, matching **Contact \> Export**
+  and the `contactable_inboxes` endpoints, which need the same treatment.
+- **Audit Log \> Get Many** always returned an empty list (read `payload`; Chatwoot answers
+  `{ audit_logs: [...] }`), and its filters (`auditable_type`, `since`, `until`, `types`) were
+  silently ignored.
+- **CSAT Survey \> Get** for a conversation returned every CSAT response on the account, because
+  `conversation_id` was accepted by the node but never sent to Chatwoot.
+- **Chatwoot Trigger**'s webhook lifecycle never stored the webhook's ID. Every activation created
+  a new Chatwoot webhook instead of reusing the existing one, deactivation never deleted it, and
+  reactivating (or renaming the workflow) failed with 422 "Url has already been taken" once orphans
+  piled up. The trigger now reads the webhook back from Chatwoot's response, stores its ID, reuses
+  it on reactivation, adopts a webhook a previous 0.8.x activation left behind, and deletes it on
+  deactivation.
+
+High:
+
+- **Message \> Update** sent `content`, which Chatwoot's inbox-API endpoint ignores; only
+  `status`/`external_error` are accepted, so every call was a silent no-op. It now updates delivery
+  status (Sent/Delivered/Read/Failed) instead — see Changed below for what this means for existing
+  workflows.
+- **Message \> Create** had no way to send attachments or a voice note; **Content** was required
+  even for an attachment-only message. Added attachment upload (from binary properties) and a
+  Send Audio as Voice Message option; Content is no longer required when an attachment is present.
+- **Inbox \> Create** for Website and Email channels failed, and inbox-specific fields declared in
+  the UI were never sent in the request body.
+- **Toggle Priority** and **Conversation \> Update**'s priority field failed with the default
+  "None" value on current Chatwoot (422; older versions 500'd). Sending no `priority` (rather than
+  an empty string) now clears it.
+- Get Many/Search/Filter operations that use **Return All** could stop after Chatwoot's own
+  page-count ceiling (page 100 for conversations, for example) without telling the workflow the
+  list was incomplete; several such ceilings are now surfaced or worked around per endpoint.
+
+Plus dozens of medium- and low-severity fixes across almost every resource (wrong or missing
+request fields, outdated defaults, endpoints that changed shape between Chatwoot 4.13 and 4.18) —
+see the audit report for the complete, per-finding list.
+
+### Added
+
+- **HMAC signature verification** for the Chatwoot Trigger (`X-Chatwoot-Signature`,
+  `X-Chatwoot-Timestamp`), on by default (see Changed below).
+- **Agent Bot / API Channel trigger mode**: a new **Source** option lets the trigger verify
+  deliveries sent directly to a manually-configured URL (an agent bot's or an API channel inbox's
+  own Webhook URL, or a webhook you manage by hand) instead of only an n8n-managed account webhook.
+  Each source has its own signing secret and event list.
+- **Trigger filters**: Inbox IDs, Sender Types, Message Types, Private Notes, Ignore Messages From
+  User IDs, and Ignore Outgoing WhatsApp Echoes (Evolution API) — the last one drops the
+  `message_created` events Evolution's own outbound relay creates for messages n8n already sent.
+- **Inbox Created / Inbox Updated** trigger events (Chatwoot's `ENABLE_INBOX_EVENTS`), with channel
+  secrets redacted by default (**Redact Channel Secrets** option).
+- **`usableAsTool: true`** on the Chatwoot node: it can now be attached as a tool to the **AI
+  Agent** node.
+- **Automatic retries with backoff** for `429` and idempotent `502`/`503`/`504` responses, honoring
+  Chatwoot's `Retry-After` header when present.
+- **Conversation**: Append Labels / Remove Labels (in addition to the existing Set Labels),
+  Merge With Existing option for Update Custom Attributes, Assign by Agent Bot or Captain
+  (AI) Assistant, `sort_by`/`conversation_type`/`source_id`/`updated_within` filters.
+- **Contact**: Append Labels / Remove Labels, `source_id` on create, `additional_attributes`,
+  `avatar_url`/`blocked` on create, labels filter.
+- **Team \> Reset Secret**, **Inbox \> Reset Secret / Rotate HMAC Token**, and other
+  previously-missing admin endpoints.
+- **Report \> Drilldown**: the list of conversations/messages behind a report metric.
+- New Public API options: identity validation (`identifier_hash`) for contacts, CSAT survey
+  get/submit, cursor-paginated message history (previously capped at the last 20 messages), and a
+  new **\[Public\] Inbox** resource (Get: the API inbox's public settings — name, working hours,
+  whether CSAT and identity validation are enforced).
+- Expanded test suite: 1007 unit tests across 12 suites (up from 241), including a request-layer
+  harness (`test/helpers/mockExecuteFunctions.ts`) that exercises every resource's `execute()`
+  branch against mocked HTTP responses.
+
+### Changed / Behavior changes
+
+Several 0.8.3 behaviors were bugs, but existing workflows may depend on them. Each has a
+compatibility option that defaults to the old behavior where practical, and defaults to the fixed
+behavior where the old one was simply wrong with no reasonable use:
+
+- **Simplify Output** (new option, default **off**) on the handful of operations that returned
+  Chatwoot's raw envelope in 0.8.3 (`helpCenter` Get Many Categories/Portals, `inbox` Get Members,
+  `slaPolicy` Get Many, `webhook` Create/Get Many/Update): left off, they keep returning the
+  complete response (payload plus metadata), so expressions written against 0.8.3's output keep
+  working. Turn it on to get one item per record instead.
+- **Conversation/Contact \> Set Labels** (the operation that used to be the only "Add Labels")
+  keeps its 0.8.3 **replace-all** behavior under its original parameter value, so existing
+  workflows are unaffected. The new **Append Labels** and **Remove Labels** operations do what
+  "Add Labels" used to sound like it did.
+- **Update Custom Attributes** (conversation) now defaults to **replacing** the whole
+  `custom_attributes` object, matching 0.8.3. Turn on **Merge With Existing** to merge into the
+  current attributes instead (Chatwoot 4.17+).
+- **Chatwoot Trigger \> Include Raw Body** keeps returning the parsed JSON body under `rawBody`,
+  exactly as in 0.8.3. The new **Include Raw Body Text** option adds `rawBodyText`, the exact bytes
+  Chatwoot signed — use it if you need to verify the signature yourself downstream.
+- **Verify Signature** defaults to **on**. Existing workflows using the account-webhook source
+  (the only source 0.8.x supported) already have a signing secret stored from activation, so
+  verification succeeds transparently; turn it off only for a server that never signed its
+  requests. New Agent Bot/API Channel sources require a secret unless this is off.
+- **Conversation \> Get Many/Filter \> Status = All** now genuinely returns conversations of every
+  status. In 0.8.3, leaving Status unset (the field's own default) silently fell back to Chatwoot's
+  server-side default of **Open only** — a workflow that looked like it filtered nothing was
+  actually always filtering to open conversations.
+- **Message \> Update**'s **Content** field is gone (Chatwoot's inbox-API endpoint never applied it
+  in 0.8.3 either — this was always a no-op, never a working "edit message" feature). The operation
+  now does what Chatwoot's endpoint actually supports: change a message's delivery **Status**
+  (Sent/Delivered/Read/Failed).
+- **Message \> Get Many**'s pagination order for the fixed page size changed direction (oldest of
+  each cursor page, not newest) as part of the duplicate-messages fix above; workflows that relied
+  on the specific duplicated rows 0.8.3 returned will see different (correct) results.
+
+### Compatibility
+
+- **Chatwoot**: tested against the documented behavior of 4.13 through 4.18 (current at the time of
+  the audit). Chatwoot 4.14+ delivers webhooks through an anti-SSRF filter (SafeFetch): if this n8n
+  instance is reachable only by a private address (Docker service name, `localhost`, `10.x`,
+  `172.16–31.x`, `192.168.x`), Chatwoot silently drops every delivery unless
+  `SAFE_FETCH_ALLOW_PRIVATE_NETWORK=true` is set on the Chatwoot server (the Chatwoot Trigger shows
+  a notice about this). Chatwoot 4.14+ also requires an administrator token for Custom Attribute
+  Create/Update/Delete (an agent token used to be enough) and can 403 Company operations when the
+  account's `companies` feature isn't enabled.
+- **n8n**: works on current n8n 2.x. n8n 3.0 (planned for October 2026) disables unverified
+  community packages by default — see README for the `N8N_UNVERIFIED_PACKAGES_ENABLED` workaround
+  until this package is verified.
+- **Evolution API** (WhatsApp): see the README's "Using with Evolution API" section for
+  identifier/JID, typing-indicator and attachment notes specific to API-channel inboxes.
+
 ## [0.8.3] - 2026-05-06
 
 ### Fixed

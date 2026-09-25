@@ -75,6 +75,10 @@ export function parseJsonObject(value: unknown, fieldName: string): IDataObject 
     try {
       parsed = JSON.parse(value);
     } catch {
+      // Pure parsing helper with no node/context of its own; both call sites sit inside
+      // Chatwoot.node.ts's execute() loop, whose outer catch already rewraps any plain Error into a
+      // NodeOperationError (see GenericFunctions.ts's parseJsonSafe for the same pattern).
+      // eslint-disable-next-line
       throw new Error(`Invalid JSON in "${fieldName}": ${value.substring(0, 100)}`);
     }
   }

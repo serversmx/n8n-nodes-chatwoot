@@ -1,5 +1,5 @@
 {
-	"node": "n8n-nodes-base.chatwootTrigger",
+	"node": "n8n-nodes-chatwoot.chatwootTrigger",
 	"nodeVersion": "1.0",
 	"codexVersion": "1.0",
 	"categories": ["Communication"],

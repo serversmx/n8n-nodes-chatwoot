@@ -224,7 +224,7 @@ export class ChatwootTrigger implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Chatwoot Trigger',
     name: 'chatwootTrigger',
-    icon: 'file:chatwoot.svg',
+    icon: { light: 'file:chatwoot.svg', dark: 'file:chatwoot.svg' },
     group: ['trigger'],
     version: 1,
     subtitle:
@@ -698,7 +698,10 @@ export class ChatwootTrigger implements INodeType {
         try {
           webhooks = await listAccountWebhooks.call(this);
         } catch (error) {
-          // Only "not found" means there is nothing to reuse; auth/network errors are shown to the user
+          // Only "not found" means there is nothing to reuse; auth/network errors are shown to the user.
+          // `error` is already a NodeApiError from listAccountWebhooks/chatwootApiRequest (see
+          // GenericFunctions.chatwootRequest).
+          // eslint-disable-next-line
           if (getHttpStatus(error) !== 404) throw error;
           forgetWebhook(staticData);
           return false;
@@ -754,12 +757,18 @@ export class ChatwootTrigger implements INodeType {
             subscriptions: events,
           });
         } catch (error) {
+          // `error` is already a NodeApiError from chatwootApiRequest (see
+          // GenericFunctions.chatwootRequest).
+          // eslint-disable-next-line
           if (getHttpStatus(error) !== 422) throw error;
           // 422 is usually "Url has already been taken": the webhook exists (created concurrently or
           // missed by checkExists), so reuse it. Any other validation error is rethrown as-is.
           const existing = (await listAccountWebhooks.call(this)).find(
             (webhook) => webhook.url === url,
           );
+          // Same already-wrapped NodeApiError as above, rethrown unchanged when no matching webhook is
+          // found to adopt.
+          // eslint-disable-next-line
           if (!existing) throw error;
           await adoptWebhook(this, existing, events, url);
           return true;
@@ -794,6 +803,9 @@ export class ChatwootTrigger implements INodeType {
           try {
             id = (await listAccountWebhooks.call(this)).find((webhook) => webhook.url === url)?.id;
           } catch (error) {
+            // `error` is already a NodeApiError from listAccountWebhooks (see
+            // GenericFunctions.chatwootRequest).
+            // eslint-disable-next-line
             if (getHttpStatus(error) !== 404) throw error;
           }
         }

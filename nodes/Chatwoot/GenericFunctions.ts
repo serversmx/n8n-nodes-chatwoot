@@ -160,6 +160,11 @@ export function parseJsonSafe(value: unknown, fieldName: string): any {
   try {
     return JSON.parse(value);
   } catch {
+    // This is a pure parsing helper with no node/context of its own; every call site sits inside
+    // Chatwoot.node.ts's execute() loop, whose outer catch (see the bottom of execute()) already
+    // rewraps any plain Error into a NodeOperationError with the item's index before it reaches
+    // continueOnFail() or the user.
+    // eslint-disable-next-line
     throw new Error(`Invalid JSON in "${fieldName}": ${value.substring(0, 100)}`);
   }
 }
@@ -683,6 +688,10 @@ async function performRequest(
     } catch (error) {
       const status = getHttpStatus(error);
       if (!policy || state.retries >= policy.maxRetries || !isRetryableRequest(method, status)) {
+        // `performRequest`'s only caller, chatwootRequest below, wraps every error it throws via
+        // buildChatwootApiError before returning to its own callers; this just decides whether to
+        // retry first.
+        // eslint-disable-next-line
         throw error;
       }
       state.retries++;

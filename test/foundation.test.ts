@@ -1391,7 +1391,10 @@ describe('n8n 2.x hygiene (N8N-6)', () => {
       new ChatwootPlatformApi(),
       new ChatwootPublicApi(),
     ]) {
-      expect(credential.icon).toBe('file:../nodes/Chatwoot/chatwoot.svg');
+      expect(credential.icon).toEqual({
+        light: 'file:../nodes/Chatwoot/chatwoot.svg',
+        dark: 'file:../nodes/Chatwoot/chatwoot.svg',
+      });
       const iconPath = join(__dirname, '../credentials', '../nodes/Chatwoot/chatwoot.svg');
       expect(existsSync(iconPath)).toBe(true);
     }

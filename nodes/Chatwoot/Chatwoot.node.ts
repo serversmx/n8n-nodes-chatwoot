@@ -143,7 +143,7 @@ export class Chatwoot implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Chatwoot',
     name: 'chatwoot',
-    icon: 'file:chatwoot.svg',
+    icon: { light: 'file:chatwoot.svg', dark: 'file:chatwoot.svg' },
     group: ['transform'],
     version: 1,
     subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
@@ -1861,6 +1861,11 @@ export class Chatwoot implements INodeType {
               if (error instanceof NodeApiError && [401, 403, 422].includes(getHttpStatus(error) ?? 0)) {
                 error.description = 'Drilldown requires an administrator token. Since must be earlier than Until, and Bucket Start plus Group By Period must overlap that range in the selected Timezone Offset.';
               }
+              // `error` is already a NodeApiError from chatwootApiRequestAllItems (see
+              // GenericFunctions.chatwootRequest, which wraps every request error via buildChatwootApiError
+              // before it reaches any caller); this only augments its description and rethrows the same
+              // instance.
+              // eslint-disable-next-line
               throw error;
             }
           } else if (operation === 'inboxLabelMatrix') {
@@ -3320,6 +3325,10 @@ export class Chatwoot implements INodeType {
             if (error instanceof NodeApiError && getHttpStatus(error) === 500) {
               error.description = [IDENTITY_VALIDATION_HINT, error.description].filter(Boolean).join(' ');
             }
+            // `error` is already a NodeApiError from chatwootPublicApiRequest (wrapped in
+            // GenericFunctions.chatwootRequest); this only augments its description and rethrows the
+            // same instance.
+            // eslint-disable-next-line
             throw error;
           }
         }

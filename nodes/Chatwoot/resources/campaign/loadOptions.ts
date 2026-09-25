@@ -25,6 +25,8 @@ export async function getCampaignInboxes(
   } catch (error) {
     // Same policy as the shared loadOptions: an empty list on 404 only, other errors are shown
     if (getHttpStatus(error) === 404) return [];
+    // `error` is already a NodeApiError from chatwootApiRequest (see GenericFunctions.chatwootRequest).
+    // eslint-disable-next-line
     throw error;
   }
 
