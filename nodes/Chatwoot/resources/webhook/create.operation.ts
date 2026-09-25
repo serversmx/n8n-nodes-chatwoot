@@ -1,5 +1,8 @@
 import type { INodeProperties } from 'n8n-workflow';
 
+import { SAFE_FETCH_WARNING } from '../inbox/channelSettings';
+import { WEBHOOK_EVENT_OPTIONS } from './events';
+
 export const createOperation: INodeProperties[] = [
   {
     displayName: 'Webhook URL',
@@ -14,55 +17,14 @@ export const createOperation: INodeProperties[] = [
         operation: ['create'],
       },
     },
-    description: 'URL where webhook events will be sent',
+    description: `URL where Chatwoot POSTs the events (must be unique per account). ${SAFE_FETCH_WARNING}`,
   },
   {
     displayName: 'Subscriptions',
     name: 'subscriptions',
     type: 'multiOptions',
     required: true,
-    options: [
-      {
-        name: 'Contact Created',
-        value: 'contact_created',
-        description: 'Triggered when a new contact is created',
-      },
-      {
-        name: 'Contact Updated',
-        value: 'contact_updated',
-        description: 'Triggered when a contact is updated',
-      },
-      {
-        name: 'Conversation Created',
-        value: 'conversation_created',
-        description: 'Triggered when a new conversation is created',
-      },
-      {
-        name: 'Conversation Status Changed',
-        value: 'conversation_status_changed',
-        description: 'Triggered when conversation status changes (open, resolved, pending, snoozed)',
-      },
-      {
-        name: 'Conversation Updated',
-        value: 'conversation_updated',
-        description: 'Triggered when a conversation is updated',
-      },
-      {
-        name: 'Message Created',
-        value: 'message_created',
-        description: 'Triggered when a new message is sent',
-      },
-      {
-        name: 'Message Updated',
-        value: 'message_updated',
-        description: 'Triggered when a message is updated',
-      },
-      {
-        name: 'Webwidget Triggered',
-        value: 'webwidget_triggered',
-        description: 'Triggered when chat widget is opened',
-      },
-    ],
+    options: WEBHOOK_EVENT_OPTIONS,
     default: ['message_created'],
     displayOptions: {
       show: {
@@ -71,5 +33,39 @@ export const createOperation: INodeProperties[] = [
       },
     },
     description: 'Events that will trigger this webhook',
+  },
+  {
+    displayName: 'Additional Fields',
+    name: 'additionalFields',
+    type: 'collection',
+    placeholder: 'Add Field',
+    default: {},
+    displayOptions: {
+      show: {
+        resource: ['webhook'],
+        operation: ['create'],
+      },
+    },
+    options: [
+      {
+        displayName: 'Inbox Name or ID',
+        name: 'inbox_id',
+        type: 'options',
+        typeOptions: {
+          loadOptionsMethod: 'getInboxes',
+        },
+        default: '',
+        description:
+          'Inbox associated with the webhook. Chatwoot 4.18 stores and returns it but still sends events of every inbox, so filter by inbox in your workflow. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+      },
+      {
+        displayName: 'Name',
+        name: 'name',
+        type: 'string',
+        default: '',
+        placeholder: 'n8n: order updates',
+        description: 'Name that identifies the webhook in Chatwoot',
+      },
+    ],
   },
 ];

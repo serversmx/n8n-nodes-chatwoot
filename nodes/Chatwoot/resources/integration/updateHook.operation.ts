@@ -1,19 +1,25 @@
 import type { INodeProperties } from 'n8n-workflow';
 
+import { SETTINGS_DESCRIPTION } from './createHook.operation';
+
 export const updateHookOperation: INodeProperties[] = [
   {
+    // Obsolete: hooks are identified by their ID and Chatwoot never changes a hook's app, so this
+    // value was never sent. Always hidden, kept so saved workflows keep their parameters.
     displayName: 'App ID',
     name: 'appId',
     type: 'string',
-    required: true,
     default: '',
     displayOptions: {
       show: {
         resource: ['integration'],
         operation: ['updateHook'],
       },
+      hide: {
+        resource: ['integration'],
+      },
     },
-    description: 'ID of the integration app',
+    description: 'Not used: the hook is identified by its ID',
   },
   {
     displayName: 'Hook ID',
@@ -27,7 +33,7 @@ export const updateHookOperation: INodeProperties[] = [
         operation: ['updateHook'],
       },
     },
-    description: 'ID of the hook to update',
+    description: 'ID of the hook to update (see the hooks array of Integration > Get Many)',
   },
   {
     displayName: 'Settings',
@@ -40,6 +46,32 @@ export const updateHookOperation: INodeProperties[] = [
         operation: ['updateHook'],
       },
     },
-    description: 'Updated integration-specific settings as JSON',
+    description: `New settings (replace the stored ones). Leave {} to keep the current settings, e.g. when only changing the status. ${SETTINGS_DESCRIPTION}`,
+  },
+  {
+    displayName: 'Update Fields',
+    name: 'updateFields',
+    type: 'collection',
+    placeholder: 'Add Field',
+    default: {},
+    displayOptions: {
+      show: {
+        resource: ['integration'],
+        operation: ['updateHook'],
+      },
+    },
+    options: [
+      {
+        displayName: 'Status',
+        name: 'status',
+        type: 'options',
+        options: [
+          { name: 'Enabled', value: 'enabled' },
+          { name: 'Disabled', value: 'disabled' },
+        ],
+        default: 'enabled',
+        description: 'Enable or disable the hook without deleting it',
+      },
+    ],
   },
 ];
