@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { portalFieldOptions } from './shared';
 
 export const updatePortalOperation: INodeProperties[] = [
   {
@@ -27,35 +28,10 @@ export const updatePortalOperation: INodeProperties[] = [
         operation: ['updatePortal'],
       },
     },
+    description:
+      'Config fields are merged into the current portal config (the node reads the portal first), so unset locales and settings are kept',
     options: [
-      {
-        displayName: 'Archived',
-        name: 'archived',
-        type: 'boolean',
-        default: false,
-        description: 'Whether the portal is archived',
-      },
-      {
-        displayName: 'Custom Domain',
-        name: 'custom_domain',
-        type: 'string',
-        default: '',
-        description: 'Custom domain for the portal',
-      },
-      {
-        displayName: 'Header Text',
-        name: 'header_text',
-        type: 'string',
-        default: '',
-        description: 'Header text displayed on the portal',
-      },
-      {
-        displayName: 'Homepage Link',
-        name: 'homepage_link',
-        type: 'string',
-        default: '',
-        description: 'Link to the homepage',
-      },
+      ...portalFieldOptions,
       {
         displayName: 'Name',
         name: 'name',
@@ -64,11 +40,11 @@ export const updatePortalOperation: INodeProperties[] = [
         description: 'Name of the portal',
       },
       {
-        displayName: 'Page Title',
-        name: 'page_title',
+        displayName: 'Slug',
+        name: 'slug',
         type: 'string',
         default: '',
-        description: 'Title of the portal page',
+        description: 'New slug of the portal (changes its public URL)',
       },
     ],
   },

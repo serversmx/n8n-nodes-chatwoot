@@ -42,7 +42,7 @@ import { webhookOperations, webhookFields } from './resources/webhook';
 import { conversationOperations, conversationFields } from './resources/conversation';
 import { messageOperations, messageFields } from './resources/message';
 import { contactOperations, contactFields } from './resources/contact';
-import { reportOperations, reportFields } from './resources/report';
+import { reportOperations, reportFields, REPORT_CSV_DOWNLOADS } from './resources/report';
 import { profileOperations, profileFields } from './resources/profile';
 import { helpCenterOperations, helpCenterFields } from './resources/helpCenter';
 import { integrationOperations, integrationFields } from './resources/integration';
@@ -70,6 +70,17 @@ import { accountAgentBotOperations, accountAgentBotFields } from './resources/ac
 import { publicContactOperations, publicContactFields } from './resources/publicContact';
 import { publicConversationOperations, publicConversationFields } from './resources/publicConversation';
 import { publicMessageOperations, publicMessageFields } from './resources/publicMessage';
+
+// Reporting / insight helpers (report, csatSurvey, appliedSla, auditLog, company, helpCenter)
+import {
+  buildCsvOutput,
+  parseIdList,
+  parseJsonObject,
+  parseStringList,
+  portalConfigFromResponse,
+  requestFilteredPages,
+  toUnixSeconds,
+} from './resources/report/helpers';
 
 export class Chatwoot implements INodeType {
   description: INodeTypeDescription = {
@@ -1158,68 +1169,139 @@ export class Chatwoot implements INodeType {
         // REPORT (Application API v2 — /api/v2/accounts/{id}/reports/...)
         // =====================================================================
         else if (resource === 'report') {
-          // Helper: convert dateTime to unix timestamp
-          const toUnix = (val: string): number => Math.floor(new Date(val).getTime() / 1000);
+          const options = this.getNodeParameter('options', i, {}) as IDataObject;
 
-          // Helper: build qs from since/until + options collection
+          // Helper: since/until as integer Unix seconds + the options collection. `extra` is applied
+          // last so an operation's own params (e.g. the outgoing messages group_by entity) are never
+          // overwritten by an option. Array params are sent as inbox_ids[]=1&inbox_ids[]=2.
           const buildQs = (extra: IDataObject = {}): IDataObject => {
-            const qs: IDataObject = { ...extra };
-            const sinceVal = this.getNodeParameter('since', i, '') as string;
-            const untilVal = this.getNodeParameter('until', i, '') as string;
-            if (sinceVal) qs.since = toUnix(sinceVal);
-            if (untilVal) qs.until = toUnix(untilVal);
-            const opts = this.getNodeParameter('options', i, {}) as IDataObject;
-            if (opts.id) qs.id = opts.id;
-            if (opts.group_by) qs.group_by = opts.group_by;
-            if (opts.timezone_offset !== undefined) qs.timezone_offset = opts.timezone_offset;
-            if (opts.business_hours !== undefined) qs.business_hours = opts.business_hours;
-            if (opts.days_before) qs.days_before = opts.days_before;
-            if (opts.user_id) qs.user_id = opts.user_id;
-            if (opts.inbox_ids) qs['inbox_ids[]'] = (opts.inbox_ids as string).split(',').map((v) => parseInt(v.trim(), 10));
-            if (opts.label_ids) qs['label_ids[]'] = (opts.label_ids as string).split(',').map((v) => parseInt(v.trim(), 10));
-            return qs;
+            const qs: IDataObject = {};
+            const since = toUnixSeconds(this.getNodeParameter('since', i, ''), 'Since');
+            const until = toUnixSeconds(this.getNodeParameter('until', i, ''), 'Until');
+            if (since !== undefined) qs.since = since;
+            if (until !== undefined) qs.until = until;
+            if (options.id) qs.id = options.id;
+            if (options.group_by) qs.group_by = options.group_by;
+            if (options.timezone_offset !== undefined) qs.timezone_offset = options.timezone_offset;
+            if (options.business_hours !== undefined) qs.business_hours = options.business_hours;
+            if (options.days_before) qs.days_before = options.days_before;
+            const inboxIds = parseIdList(options.inbox_ids, 'Inbox IDs');
+            const labelIds = parseIdList(options.label_ids, 'Label IDs');
+            if (inboxIds.length > 0) qs.inbox_ids = inboxIds;
+            if (labelIds.length > 0) qs.label_ids = labelIds;
+            return { ...qs, ...extra };
           };
 
+          // Entity reports (Type = agent/inbox/label/team) need the entity ID
+          const getEntityType = (): string => {
+            const type = this.getNodeParameter('type', i) as string;
+            if (type !== 'account' && !options.id) {
+              throw new NodeOperationError(
+                this.getNode(),
+                `Options → Entity ID is required when Type is "${type}"`,
+                { itemIndex: i },
+              );
+            }
+            return type;
+          };
+
+          const csvDownload = Object.prototype.hasOwnProperty.call(REPORT_CSV_DOWNLOADS, operation)
+            ? REPORT_CSV_DOWNLOADS[operation]
+            : undefined;
+          if (csvDownload) {
+            // CSV endpoints: request text and output a binary file or parsed rows
+            const qs = buildQs();
+            if (csvDownload.dateRange && (qs.since === undefined || qs.until === undefined)) {
+              // The CSV templates start with Date.strptime(params[:since]) → 500 without a range
+              throw new NodeOperationError(this.getNode(), 'Since and Until are required for this report', { itemIndex: i });
+            }
+            const csv = await chatwootApiV2Request.call(this, 'GET', csvDownload.endpoint, {}, qs, {
+              itemIndex: i,
+              json: false,
+              encoding: 'text',
+            });
+            returnData.push(
+              ...(await buildCsvOutput.call(this, i, csv, { fileName: csvDownload.fileName, headerRow: 1, csvSafe: true })),
+            );
+            continue;
+          }
+
           if (operation === 'accountSummary') {
-            const type = this.getNodeParameter('type', i) as string;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/summary', {}, buildQs({ type }));
+            const type = getEntityType();
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/summary', {}, buildQs({ type }), { itemIndex: i });
           } else if (operation === 'timeseries') {
-            const type = this.getNodeParameter('type', i) as string;
+            const type = getEntityType();
             const metric = this.getNodeParameter('metric', i) as string;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports', {}, buildQs({ type, metric }));
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports', {}, buildQs({ type, metric }), { itemIndex: i });
           } else if (operation === 'botSummary') {
-            const type = this.getNodeParameter('type', i) as string;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/bot_summary', {}, buildQs({ type }));
+            const type = getEntityType();
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/bot_summary', {}, buildQs({ type }), { itemIndex: i });
           } else if (operation === 'botMetrics') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/bot_metrics', {}, buildQs());
-          } else if (operation === 'agentStatistics') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/agents', {}, buildQs());
-          } else if (operation === 'inboxStatistics') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/inboxes', {}, buildQs());
-          } else if (operation === 'labelStatistics') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/labels', {}, buildQs());
-          } else if (operation === 'teamStatistics') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/teams', {}, buildQs());
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/bot_metrics', {}, buildQs(), { itemIndex: i });
           } else if (operation === 'conversationStatistics') {
-            const conversationType = this.getNodeParameter('conversationType', i) as string;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/conversations', {}, buildQs({ type: conversationType }));
-          } else if (operation === 'conversationsSummary') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/conversations_summary', {}, buildQs());
-          } else if (operation === 'conversationTraffic') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/conversation_traffic', {}, buildQs());
+            // Chatwoot only distinguishes 'account' from everything else (per-agent list, 25 per page,
+            // user_id ignored). Legacy free-text values (inbox, team, label) behave like 'agent'.
+            const conversationType = this.getNodeParameter('conversationType', i, 'account') as string;
+            if (!conversationType || conversationType === 'account') {
+              responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/conversations', {}, { type: 'account' }, { itemIndex: i });
+            } else {
+              const agents = await chatwootApiRequestAllItems.call(this, 'GET', '/reports/conversations', {}, { type: 'agent' }, undefined, {
+                api: 'applicationV2',
+                pageSize: 25,
+                itemIndex: i,
+              });
+              const userId = Number(options.user_id) || 0;
+              responseData = userId ? agents.filter((agent) => Number(agent.id) === userId) : agents;
+            }
+          } else if (operation === 'drilldown') {
+            const type = getEntityType();
+            const metric = this.getNodeParameter('metric', i) as string;
+            const bucketTimestamp = toUnixSeconds(this.getNodeParameter('bucketTimestamp', i, ''), 'Bucket Start');
+            if (bucketTimestamp === undefined) {
+              throw new NodeOperationError(this.getNode(), 'Bucket Start is required for Drilldown', { itemIndex: i });
+            }
+            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            // Chatwoot pages drilldowns with per_page up to 100
+            const qs = buildQs({
+              type,
+              metric,
+              bucket_timestamp: bucketTimestamp,
+              per_page: limit === undefined ? 100 : Math.min(Math.max(limit, 1), 100),
+            });
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/reports/drilldown', {}, qs, 'payload', {
+              api: 'applicationV2',
+              limit,
+              itemIndex: i,
+            });
           } else if (operation === 'inboxLabelMatrix') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/inbox_label_matrix', {}, buildQs());
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/inbox_label_matrix', {}, buildQs(), { itemIndex: i });
           } else if (operation === 'firstResponseTimeDistribution') {
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/first_response_time_distribution', {}, buildQs());
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/first_response_time_distribution', {}, buildQs(), { itemIndex: i });
           } else if (operation === 'outgoingMessagesCount') {
             const groupBy = this.getNodeParameter('groupBy', i) as string;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/outgoing_messages_count', {}, buildQs({ group_by: groupBy }));
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/reports/outgoing_messages_count', {}, buildQs({ group_by: groupBy }), { itemIndex: i });
+          } else if (operation === 'reportingEvents') {
+            // Enterprise, administrators only (v1 endpoint): 25 per page with meta.total_pages
+            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            const qs = buildQs();
+            if (options.inbox_id) qs.inbox_id = options.inbox_id;
+            if (options.user_id) qs.user_id = options.user_id;
+            if (options.event_name) qs.name = options.event_name;
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/reporting_events', {}, qs, 'payload', {
+              limit,
+              itemIndex: i,
+            });
+          } else if (operation === 'conversationReportingEvents') {
+            const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+            responseData = await chatwootApiRequest.call(this, 'GET', `/conversations/${conversationId}/reporting_events`, {}, {}, { itemIndex: i });
           } else if (operation === 'yearInReview') {
             const year = this.getNodeParameter('year', i) as number;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/year_in_review', {}, { year });
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/year_in_review', {}, { year }, { itemIndex: i });
           } else if (operation === 'conversationCounts') {
             // Note: this stays on v1 because /conversations/meta is a v1 endpoint
-            responseData = await chatwootApiRequest.call(this, 'GET', '/conversations/meta');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/conversations/meta', {}, {}, { itemIndex: i });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1255,65 +1337,238 @@ export class Chatwoot implements INodeType {
           // use `params.require(:portal|:category|:article)` so create/update
           // bodies must wrap fields under the resource key. Without the wrapper
           // create returns 500 and update silently no-ops.
+          // Portals are looked up by slug (find_by!(slug:)).
+          const getPortalSlug = (): string => {
+            const slug = String(this.getNodeParameter('portalSlug', i) ?? '').trim();
+            if (!slug) {
+              throw new NodeOperationError(this.getNode(), 'Portal Slug must not be empty', { itemIndex: i });
+            }
+            return encodeURIComponent(slug);
+          };
+
+          const buildPortalFields = (fields: IDataObject) => {
+            const portal: IDataObject = {};
+            for (const key of ['name', 'slug', 'custom_domain', 'header_text', 'homepage_link', 'page_title', 'color']) {
+              if (fields[key] !== undefined && fields[key] !== '') portal[key] = fields[key];
+            }
+            if (fields.archived !== undefined) portal.archived = fields.archived;
+            const config: IDataObject = {};
+            if (fields.default_locale) config.default_locale = String(fields.default_locale).trim();
+            const allowedLocales = parseStringList(fields.allowed_locales);
+            if (allowedLocales.length > 0) config.allowed_locales = allowedLocales;
+            if (fields.draft_locales !== undefined) config.draft_locales = parseStringList(fields.draft_locales);
+            if (fields.layout) config.layout = fields.layout;
+            for (const key of ['social_profiles', 'analytics']) {
+              const value = parseJsonObject(fields[key], key);
+              if (value) config[key] = value;
+            }
+            // inbox_id (website inbox for the live chat widget) is read outside the portal wrapper
+            const inboxId = Number(fields.inbox_id) > 0 ? Number(fields.inbox_id) : undefined;
+            return { portal, config, inboxId };
+          };
+
+          const buildCategoryFields = (fields: IDataObject): IDataObject => {
+            const category: IDataObject = {};
+            for (const key of ['name', 'slug', 'locale', 'description', 'icon', 'icon_color']) {
+              if (fields[key] !== undefined && fields[key] !== '') category[key] = fields[key];
+            }
+            if (fields.position !== undefined) category.position = fields.position;
+            for (const key of ['parent_category_id', 'associated_category_id']) {
+              if (Number(fields[key]) > 0) category[key] = Number(fields[key]);
+            }
+            const relatedIds = parseIdList(fields.related_category_ids, 'Related Category IDs');
+            if (relatedIds.length > 0) category.related_category_ids = relatedIds;
+            return category;
+          };
+
+          const buildArticleFields = (fields: IDataObject) => {
+            const article: IDataObject = {};
+            for (const key of ['title', 'content', 'description', 'slug', 'status', 'locale', 'draft_title', 'draft_content']) {
+              if (fields[key] !== undefined && fields[key] !== '') article[key] = fields[key];
+            }
+            if (fields.position !== undefined) article.position = fields.position;
+            // Never send 0/'' IDs: Chatwoot 4.18 rejects author_id 0 with 422 "Invalid author ID"
+            for (const key of ['category_id', 'author_id', 'associated_article_id']) {
+              const id = Number(fields[key]);
+              if (Number.isInteger(id) && id > 0) article[key] = id;
+            }
+            const meta: IDataObject = {};
+            if (fields.meta_title) meta.title = fields.meta_title;
+            if (fields.meta_description) meta.description = fields.meta_description;
+            if (fields.meta_tags !== undefined) meta.tags = parseStringList(fields.meta_tags);
+            return { article, meta };
+          };
+
           if (operation === 'createPortal') {
             const name = this.getNodeParameter('name', i) as string;
             const slug = this.getNodeParameter('slug', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+            const { portal, config, inboxId } = buildPortalFields(additionalFields);
 
-            const body: IDataObject = { portal: { name, slug, ...additionalFields } };
-            responseData = await chatwootApiRequest.call(this, 'POST', '/portals', body);
+            const body: IDataObject = { portal: { ...portal, name, slug } };
+            if (Object.keys(config).length > 0) (body.portal as IDataObject).config = config;
+            if (inboxId) body.inbox_id = inboxId;
+            responseData = await chatwootApiRequest.call(this, 'POST', '/portals', body, {}, { itemIndex: i });
           } else if (operation === 'getPortal') {
-            const portalSlug = this.getNodeParameter('portalSlug', i) as string;
-            responseData = await chatwootApiRequest.call(this, 'GET', `/portals/${portalSlug}`);
+            const portalSlug = getPortalSlug();
+            responseData = await chatwootApiRequest.call(this, 'GET', `/portals/${portalSlug}`, {}, {}, { itemIndex: i });
           } else if (operation === 'updatePortal') {
-            const portalSlug = this.getNodeParameter('portalSlug', i) as string;
+            const portalSlug = getPortalSlug();
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
+            const { portal, config, inboxId } = buildPortalFields(updateFields);
 
-            const body: IDataObject = { portal: updateFields };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/portals/${portalSlug}`, body);
+            if (Object.keys(config).length > 0) {
+              // Older Chatwoot versions replace the whole config (dropping allowed locales, layout...):
+              // read the current config and send the merged object, which is safe on every version.
+              const current = (await chatwootApiRequest.call(this, 'GET', `/portals/${portalSlug}`, {}, {}, { itemIndex: i })) as IDataObject;
+              portal.config = { ...portalConfigFromResponse(current), ...config };
+            }
+            const body: IDataObject = { portal };
+            if (inboxId) {
+              body.inbox_id = inboxId;
+              // PortalsController#update only applies inbox_id together with portal attributes
+              // (`if params[:portal].present?`): resend the current slug so a widget-only change
+              // is not silently ignored
+              if (Object.keys(portal).length === 0) portal.slug = decodeURIComponent(portalSlug);
+            }
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/portals/${portalSlug}`, body, {}, { itemIndex: i });
+          } else if (operation === 'deletePortal') {
+            const portalSlug = getPortalSlug();
+            await chatwootApiRequest.call(this, 'DELETE', `/portals/${portalSlug}`, {}, {}, { itemIndex: i });
+            responseData = { success: true, portalSlug: decodeURIComponent(portalSlug) };
+          } else if (operation === 'listPortals') {
+            // index renders { payload: [...], meta }: one output item per portal
+            const response = (await chatwootApiRequest.call(this, 'GET', '/portals', {}, {}, { itemIndex: i })) as IDataObject;
+            responseData = (Array.isArray(response.payload) ? response.payload : []) as IDataObject[];
           } else if (operation === 'createCategory') {
-            const portalSlug = this.getNodeParameter('portalSlug', i) as string;
+            const portalSlug = getPortalSlug();
             const name = this.getNodeParameter('name', i) as string;
             const slug = this.getNodeParameter('slug', i) as string;
             const locale = this.getNodeParameter('locale', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
-            const body: IDataObject = { category: { name, slug, locale, ...additionalFields } };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/portals/${portalSlug}/categories`, body);
+            const body: IDataObject = { category: { ...buildCategoryFields(additionalFields), name, slug, locale } };
+            responseData = await chatwootApiRequest.call(this, 'POST', `/portals/${portalSlug}/categories`, body, {}, { itemIndex: i });
+          } else if (operation === 'getCategory' || operation === 'updateCategory' || operation === 'deleteCategory') {
+            const portalSlug = getPortalSlug();
+            const categoryId = validateId(this.getNodeParameter('categoryId', i), 'Category ID');
+            const endpoint = `/portals/${portalSlug}/categories/${categoryId}`;
+            if (operation === 'getCategory') {
+              responseData = await chatwootApiRequest.call(this, 'GET', endpoint, {}, {}, { itemIndex: i });
+            } else if (operation === 'updateCategory') {
+              const category = buildCategoryFields(this.getNodeParameter('updateFields', i) as IDataObject);
+              if (Object.keys(category).length === 0) {
+                throw new NodeOperationError(this.getNode(), 'Update Fields: set at least one field to update', { itemIndex: i });
+              }
+              responseData = await chatwootApiRequest.call(this, 'PATCH', endpoint, { category }, {}, { itemIndex: i });
+            } else {
+              await chatwootApiRequest.call(this, 'DELETE', endpoint, {}, {}, { itemIndex: i });
+              responseData = { success: true, id: categoryId };
+            }
+          } else if (operation === 'listCategories') {
+            const portalSlug = getPortalSlug();
+            const locale = this.getNodeParameter('locale', i, '') as string;
+            const qs: IDataObject = {};
+            if (locale) qs.locale = locale;
+            // Categories are not paginated in practice (1000 per page); index renders { payload, meta }
+            const response = (await chatwootApiRequest.call(this, 'GET', `/portals/${portalSlug}/categories`, {}, qs, { itemIndex: i })) as IDataObject;
+            responseData = (Array.isArray(response.payload) ? response.payload : []) as IDataObject[];
           } else if (operation === 'createArticle') {
-            const portalSlug = this.getNodeParameter('portalSlug', i) as string;
+            const portalSlug = getPortalSlug();
             const title = this.getNodeParameter('title', i) as string;
             const content = this.getNodeParameter('content', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
+            const { article, meta } = buildArticleFields(additionalFields);
+            article.title = title;
+            article.content = content;
+            if (Object.keys(meta).length > 0) article.meta = meta;
 
-            const body: IDataObject = { article: { title, content, ...additionalFields } };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/portals/${portalSlug}/articles`, body);
-          } else if (operation === 'listPortals') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/portals');
-          } else if (operation === 'listCategories') {
-            const portalSlug = this.getNodeParameter('portalSlug', i) as string;
-            const locale = this.getNodeParameter('locale', i, 'en') as string;
-            const qs: IDataObject = {};
-            if (locale) qs.locale = locale;
-            responseData = await chatwootApiRequest.call(this, 'GET', `/portals/${portalSlug}/categories`, {}, qs);
+            if (!article.author_id) {
+              // Chatwoot requires an author and has no default: use the token owner, as the dashboard
+              // does. GET /notification_settings is account-scoped and returns the current user_id.
+              let userId = 0;
+              try {
+                const settings = (await chatwootApiRequest.call(this, 'GET', '/notification_settings', {}, {}, { itemIndex: i })) as IDataObject;
+                userId = Number(settings.user_id);
+              } catch (error) {
+                throw new NodeOperationError(this.getNode(), 'Could not resolve the article author from the API access token', {
+                  itemIndex: i,
+                  description: `Set Additional Fields → Author Name or ID. ${(error as Error).message}`,
+                });
+              }
+              if (!Number.isInteger(userId) || userId < 1) {
+                throw new NodeOperationError(this.getNode(), 'Could not resolve the article author from the API access token', {
+                  itemIndex: i,
+                  description: 'Set Additional Fields → Author Name or ID.',
+                });
+              }
+              article.author_id = userId;
+            }
+            responseData = await chatwootApiRequest.call(this, 'POST', `/portals/${portalSlug}/articles`, { article }, {}, { itemIndex: i });
+          } else if (operation === 'getArticle' || operation === 'updateArticle' || operation === 'deleteArticle') {
+            const portalSlug = getPortalSlug();
+            const articleId = validateId(this.getNodeParameter('articleId', i), 'Article ID');
+            const endpoint = `/portals/${portalSlug}/articles/${articleId}`;
+            if (operation === 'getArticle') {
+              responseData = await chatwootApiRequest.call(this, 'GET', endpoint, {}, {}, { itemIndex: i });
+            } else if (operation === 'updateArticle') {
+              const { article, meta } = buildArticleFields(this.getNodeParameter('updateFields', i) as IDataObject);
+              if (Object.keys(meta).length > 0) {
+                // Chatwoot replaces meta as a whole: merge into the current meta
+                const current = (await chatwootApiRequest.call(this, 'GET', endpoint, {}, {}, { itemIndex: i })) as IDataObject;
+                const currentMeta = ((current.payload as IDataObject | undefined)?.meta ?? {}) as IDataObject;
+                article.meta = { ...currentMeta, ...meta };
+              }
+              if (Object.keys(article).length === 0) {
+                throw new NodeOperationError(this.getNode(), 'Update Fields: set at least one field to update', { itemIndex: i });
+              }
+              // Only draft_title/draft_content: staged edit that keeps the published version (4.16+)
+              responseData = await chatwootApiRequest.call(this, 'PATCH', endpoint, { article }, {}, { itemIndex: i });
+            } else {
+              await chatwootApiRequest.call(this, 'DELETE', endpoint, {}, {}, { itemIndex: i });
+              responseData = { success: true, id: articleId };
+            }
           } else if (operation === 'listArticles') {
-            const portalSlug = this.getNodeParameter('portalSlug', i) as string;
+            const portalSlug = getPortalSlug();
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
             const options = this.getNodeParameter('options', i) as IDataObject;
 
             const qs: IDataObject = {};
             if (options.locale) qs.locale = options.locale;
             if (options.category_slug) qs.category_slug = options.category_slug;
             if (options.status) qs.status = options.status;
+            if (options.query) qs.query = options.query;
+            if (Number(options.author_id) > 0) qs.author_id = Number(options.author_id);
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', `/portals/${portalSlug}/articles`, {}, qs, 'payload');
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', `/portals/${portalSlug}/articles`, {}, qs, 'payload', {
+              limit,
+              pageSize: 25,
+              itemIndex: i,
+            });
+          } else if (
+            operation === 'bulkUpdateArticleStatus' ||
+            operation === 'bulkUpdateArticleCategory' ||
+            operation === 'bulkDeleteArticles'
+          ) {
+            // Chatwoot 4.14+: /portals/:slug/articles/bulk_actions/* answer `head :ok`
+            const portalSlug = getPortalSlug();
+            const ids = parseIdList(this.getNodeParameter('articleIds', i), 'Article IDs');
+            if (ids.length === 0) {
+              throw new NodeOperationError(this.getNode(), 'Article IDs must contain at least one ID', { itemIndex: i });
+            }
+            const endpoint = `/portals/${portalSlug}/articles/bulk_actions`;
+            if (operation === 'bulkUpdateArticleStatus') {
+              const status = this.getNodeParameter('bulkStatus', i) as string;
+              await chatwootApiRequest.call(this, 'PATCH', `${endpoint}/update_status`, { ids, status }, {}, { itemIndex: i });
+              responseData = { success: true, ids, status };
+            } else if (operation === 'bulkUpdateArticleCategory') {
+              const categoryId = validateId(this.getNodeParameter('bulkCategoryId', i), 'Category ID');
+              await chatwootApiRequest.call(this, 'PATCH', `${endpoint}/update_category`, { ids, category_id: categoryId }, {}, { itemIndex: i });
+              responseData = { success: true, ids, categoryId };
             } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', `/portals/${portalSlug}/articles`, {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
+              await chatwootApiRequest.call(this, 'DELETE', `${endpoint}/delete_articles`, { ids }, {}, { itemIndex: i });
+              responseData = { success: true, ids };
             }
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
@@ -1352,22 +1607,38 @@ export class Chatwoot implements INodeType {
         // AUDIT LOG
         // =====================================================================
         else if (resource === 'auditLog') {
+          // GET /audit_logs renders { per_page, total_entries, current_page, audit_logs: [...] }
+          // (25 per page since 4.17). Filters types[]/q/since/until/sort exist since Chatwoot 4.17.
           if (operation === 'getAll') {
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-            const filters = this.getNodeParameter('filters', i) as IDataObject;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            const filters = this.getNodeParameter('filters', i, {}) as IDataObject;
             const qs: IDataObject = {};
 
-            if (filters.auditable_type) qs.auditable_type = filters.auditable_type;
-            if (filters.user_id) qs.user_id = filters.user_id;
+            // The legacy single "auditable_type" filter is merged into types[]
+            const types = new Set<string>(parseStringList(filters.types));
+            if (filters.auditable_type) types.add(filters.auditable_type as string);
+            if (types.size > 0) qs.types = [...types];
+            if (filters.q) qs.q = filters.q;
+            const since = toUnixSeconds(filters.since, 'Since');
+            const until = toUnixSeconds(filters.until, 'Until');
+            if (since !== undefined) qs.since = since;
+            if (until !== undefined) qs.until = until;
+            if (filters.sort) qs.sort = filters.sort;
 
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/audit_logs', {}, qs, 'payload');
+            const userId = Number(filters.user_id) || 0;
+            if (userId) {
+              // No server-side user filter: scan the pages and keep this user's entries
+              responseData = await requestFilteredPages.call(this, '/audit_logs', qs, 'audit_logs', (entry) => Number(entry.user_id) === userId, {
+                limit,
+                pageSize: 25,
+                itemIndex: i,
+              });
             } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/audit_logs', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
+              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/audit_logs', {}, qs, 'audit_logs', {
+                limit,
+                itemIndex: i,
+              });
             }
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
@@ -1378,21 +1649,67 @@ export class Chatwoot implements INodeType {
         // CSAT SURVEY
         // =====================================================================
         else if (resource === 'csatSurvey') {
+          // Chatwoot filters CSAT responses only by date range (both since and until), assigned agents
+          // (user_ids[]), inbox_id, team_id and rating[]. The list is a bare array, 25 per page.
+          const options = this.getNodeParameter('options', i, {}) as IDataObject;
+          const buildCsatQs = (): IDataObject => {
+            const qs: IDataObject = {};
+            const since = toUnixSeconds(options.since, 'Since');
+            const until = toUnixSeconds(options.until, 'Until');
+            if (since !== undefined) qs.since = since;
+            if (until !== undefined) qs.until = until;
+            const userIds = parseIdList(options.user_ids, 'Agent IDs');
+            if (userIds.length > 0) qs.user_ids = userIds;
+            if (options.inbox_id) qs.inbox_id = options.inbox_id;
+            if (options.team_id) qs.team_id = options.team_id;
+            const ratings = parseStringList(options.rating);
+            if (ratings.length > 0) qs.rating = ratings;
+            return qs;
+          };
+
           if (operation === 'get') {
+            // There is no conversation filter (conversation_id used to be ignored and the first page
+            // of the whole account was returned): scan newest first and keep the matching response.
+            // The response's conversation_id is the conversation display ID used in URLs.
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', '/csat_survey_responses', {}, { conversation_id: conversationId });
+            const qs = { ...buildCsatQs(), sort: '-created_at' };
+            responseData = await requestFilteredPages.call(this, '/csat_survey_responses', qs, undefined, (response) => Number(response.conversation_id) === conversationId, {
+              limit: 1,
+              pageSize: 25,
+              itemIndex: i,
+            });
+          } else if (operation === 'getAll') {
+            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            const qs = { ...buildCsatQs(), sort: (options.sort as string) || '-created_at' };
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/csat_survey_responses', {}, qs, undefined, {
+              limit,
+              pageSize: 25,
+              itemIndex: i,
+            });
           } else if (operation === 'metrics') {
-            const options = this.getNodeParameter('options', i) as IDataObject;
-            const qs: IDataObject = {};
-            if (options.since) qs.since = new Date(options.since as string).getTime() / 1000;
-            if (options.until) qs.until = new Date(options.until as string).getTime() / 1000;
-            responseData = await chatwootApiRequest.call(this, 'GET', '/csat_survey_responses/metrics', {}, qs);
+            responseData = await chatwootApiRequest.call(this, 'GET', '/csat_survey_responses/metrics', {}, buildCsatQs(), { itemIndex: i });
           } else if (operation === 'download') {
-            const options = this.getNodeParameter('options', i) as IDataObject;
-            const qs: IDataObject = {};
-            if (options.since) qs.since = new Date(options.since as string).getTime() / 1000;
-            if (options.until) qs.until = new Date(options.until as string).getTime() / 1000;
-            responseData = await chatwootApiRequest.call(this, 'GET', '/csat_survey_responses/download', {}, qs);
+            const qs = buildCsatQs();
+            // The CSV template ends with Date.strptime(params[:since]) → 500 without a range
+            if (qs.since === undefined || qs.until === undefined) {
+              throw new NodeOperationError(this.getNode(), 'CSAT Download requires Options → Since and Until', {
+                itemIndex: i,
+                description: 'Chatwoot writes the reporting period into the CSV and fails (500) when the date range is missing.',
+              });
+            }
+            const csv = await chatwootApiRequest.call(this, 'GET', '/csat_survey_responses/download', {}, { ...qs, sort: '-created_at' }, {
+              itemIndex: i,
+              json: false,
+              encoding: 'text',
+            });
+            returnData.push(...(await buildCsvOutput.call(this, i, csv, { fileName: 'csat_report.csv', headerRow: 0, csvSafe: true })));
+            continue;
+          } else if (operation === 'updateReviewNotes') {
+            // Enterprise: PATCH /csat_survey_responses/:id with a top-level csat_review_notes
+            const csatResponseId = validateId(this.getNodeParameter('csatResponseId', i), 'CSAT Response ID');
+            const reviewNotes = this.getNodeParameter('reviewNotes', i, '') as string;
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/csat_survey_responses/${csatResponseId}`, { csat_review_notes: reviewNotes }, {}, { itemIndex: i });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1603,57 +1920,99 @@ export class Chatwoot implements INodeType {
         // COMPANY (Enterprise)
         // =====================================================================
         else if (resource === 'company') {
+          // Enterprise + 'companies' account feature since 4.14 (403 "Companies are not enabled for
+          // this account" otherwise). Lists: { meta: { total_count, page }, payload: [...] }.
+          const buildCompanyBody = (fields: IDataObject): IDataObject => {
+            const company: IDataObject = {};
+            if (fields.name) company.name = fields.name;
+            if (fields.domain) company.domain = fields.domain;
+            if (fields.description) company.description = fields.description;
+            for (const key of ['custom_attributes', 'additional_attributes']) {
+              const value = parseJsonObject(fields[key], key);
+              if (value) company[key] = value;
+            }
+            // CompaniesController reads params.require(:company)
+            return { company };
+          };
+
           if (operation === 'getAll') {
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-            const options = this.getNodeParameter('options', i) as IDataObject;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            const options = this.getNodeParameter('options', i, {}) as IDataObject;
             const qs: IDataObject = {};
-            if (options.sort) qs.sort = options.sort;
-
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/companies', {}, qs, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/companies', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
-            }
+            if (options.sort) qs.sort = `${options.direction === 'desc' ? '-' : ''}${options.sort as string}`;
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/companies', {}, qs, 'payload', {
+              limit,
+              pageSize: 25,
+              itemIndex: i,
+            });
           } else if (operation === 'get') {
             const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/companies/${companyId}`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/companies/${companyId}`, {}, {}, { itemIndex: i });
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
-            const body: IDataObject = { name };
-            if (additionalFields.domain) body.domain = additionalFields.domain;
-            if (additionalFields.description) body.description = additionalFields.description;
-            responseData = await chatwootApiRequest.call(this, 'POST', '/companies', body);
+            const body = buildCompanyBody({ ...additionalFields, name });
+            responseData = await chatwootApiRequest.call(this, 'POST', '/companies', body, {}, { itemIndex: i });
           } else if (operation === 'update') {
             const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
-            const body: IDataObject = {};
-            if (updateFields.name) body.name = updateFields.name;
-            if (updateFields.domain) body.domain = updateFields.domain;
-            if (updateFields.description) body.description = updateFields.description;
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/companies/${companyId}`, body);
+            // custom_attributes are merged into the existing ones by Chatwoot (4.14+)
+            const body = buildCompanyBody(updateFields);
+            if (Object.keys(body.company as IDataObject).length === 0) {
+              throw new NodeOperationError(this.getNode(), 'Update Fields: set at least one field to update', { itemIndex: i });
+            }
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/companies/${companyId}`, body, {}, { itemIndex: i });
           } else if (operation === 'delete') {
             const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/companies/${companyId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/companies/${companyId}`, {}, {}, { itemIndex: i });
             responseData = { success: true, id: companyId };
           } else if (operation === 'search') {
             const query = this.getNodeParameter('query', i) as string;
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-            const qs: IDataObject = { q: query };
-
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/companies/search', {}, qs, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/companies/search', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/companies/search', {}, { q: query }, 'payload', {
+              limit,
+              pageSize: 25,
+              itemIndex: i,
+            });
+          } else if (operation === 'getContacts' || operation === 'searchContacts') {
+            // 15 per page; search returns contacts NOT linked to this company (candidates to add)
+            const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
+            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            const endpoint = operation === 'getContacts' ? `/companies/${companyId}/contacts` : `/companies/${companyId}/contacts/search`;
+            const qs: IDataObject = operation === 'searchContacts' ? { q: this.getNodeParameter('query', i) as string } : {};
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', endpoint, {}, qs, 'payload', {
+              limit,
+              pageSize: 15,
+              itemIndex: i,
+            });
+          } else if (operation === 'addContact') {
+            const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
+            const contactId = validateId(this.getNodeParameter('contactId', i), 'Contact ID');
+            responseData = await chatwootApiRequest.call(this, 'POST', `/companies/${companyId}/contacts`, { contact_id: contactId }, {}, { itemIndex: i });
+          } else if (operation === 'removeContact') {
+            const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
+            const contactId = validateId(this.getNodeParameter('contactId', i), 'Contact ID');
+            await chatwootApiRequest.call(this, 'DELETE', `/companies/${companyId}/contacts/${contactId}`, {}, {}, { itemIndex: i });
+            responseData = { success: true, companyId, contactId };
+          } else if (operation === 'getConversations' || operation === 'getNotes') {
+            // Both return the 20 most recent records as { payload: [...] }
+            const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
+            const segment = operation === 'getConversations' ? 'conversations' : 'notes';
+            const response = (await chatwootApiRequest.call(this, 'GET', `/companies/${companyId}/${segment}`, {}, {}, { itemIndex: i })) as IDataObject;
+            responseData = (Array.isArray(response.payload) ? response.payload : []) as IDataObject[];
+          } else if (operation === 'deleteCustomAttributes') {
+            const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
+            const keys = parseStringList(this.getNodeParameter('customAttributeKeys', i));
+            if (keys.length === 0) {
+              throw new NodeOperationError(this.getNode(), 'Custom Attribute Keys must contain at least one key', { itemIndex: i });
             }
+            responseData = await chatwootApiRequest.call(this, 'POST', `/companies/${companyId}/destroy_custom_attributes`, { custom_attributes: keys }, {}, { itemIndex: i });
+          } else if (operation === 'deleteAvatar') {
+            const companyId = validateId(this.getNodeParameter('companyId', i), 'Company ID');
+            responseData = await chatwootApiRequest.call(this, 'DELETE', `/companies/${companyId}/avatar`, {}, {}, { itemIndex: i });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1717,11 +2076,14 @@ export class Chatwoot implements INodeType {
         // SLA POLICY (Enterprise)
         // =====================================================================
         else if (resource === 'slaPolicy') {
+          // Requires the premium 'sla' feature (401 "You are not authorized to do this action" otherwise)
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/sla_policies');
+            // index renders { payload: [...] }: one output item per policy
+            const response = (await chatwootApiRequest.call(this, 'GET', '/sla_policies', {}, {}, { itemIndex: i })) as IDataObject;
+            responseData = (Array.isArray(response.payload) ? response.payload : response) as IDataObject[];
           } else if (operation === 'get') {
             const slaPolicyId = validateId(this.getNodeParameter('slaPolicyId', i), 'SLA Policy ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/sla_policies/${slaPolicyId}`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/sla_policies/${slaPolicyId}`, {}, {}, { itemIndex: i });
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
@@ -1731,7 +2093,7 @@ export class Chatwoot implements INodeType {
             if (additionalFields.next_response_time_threshold) body.next_response_time_threshold = additionalFields.next_response_time_threshold;
             if (additionalFields.resolution_time_threshold) body.resolution_time_threshold = additionalFields.resolution_time_threshold;
             if (additionalFields.only_during_business_hours !== undefined) body.only_during_business_hours = additionalFields.only_during_business_hours;
-            responseData = await chatwootApiRequest.call(this, 'POST', '/sla_policies', body);
+            responseData = await chatwootApiRequest.call(this, 'POST', '/sla_policies', body, {}, { itemIndex: i });
           } else if (operation === 'update') {
             const slaPolicyId = validateId(this.getNodeParameter('slaPolicyId', i), 'SLA Policy ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
@@ -1742,10 +2104,10 @@ export class Chatwoot implements INodeType {
             if (updateFields.next_response_time_threshold) body.next_response_time_threshold = updateFields.next_response_time_threshold;
             if (updateFields.resolution_time_threshold) body.resolution_time_threshold = updateFields.resolution_time_threshold;
             if (updateFields.only_during_business_hours !== undefined) body.only_during_business_hours = updateFields.only_during_business_hours;
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/sla_policies/${slaPolicyId}`, body);
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/sla_policies/${slaPolicyId}`, body, {}, { itemIndex: i });
           } else if (operation === 'delete') {
             const slaPolicyId = validateId(this.getNodeParameter('slaPolicyId', i), 'SLA Policy ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/sla_policies/${slaPolicyId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/sla_policies/${slaPolicyId}`, {}, {}, { itemIndex: i });
             responseData = { success: true, id: slaPolicyId };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
@@ -1756,38 +2118,40 @@ export class Chatwoot implements INodeType {
         // APPLIED SLA (Enterprise)
         // =====================================================================
         else if (resource === 'appliedSla') {
+          // Premium 'sla' feature + administrator. index/metrics/download share the same filters;
+          // index lists only breaches (missed / active_with_misses) with meta.count, 25 per page.
+          const options = this.getNodeParameter('options', i, {}) as IDataObject;
+          const qs: IDataObject = {};
+          const since = toUnixSeconds(options.since, 'Since');
+          const until = toUnixSeconds(options.until, 'Until');
+          if (since !== undefined) qs.since = since;
+          if (until !== undefined) qs.until = until;
+          if (options.inbox_id) qs.inbox_id = options.inbox_id;
+          if (options.team_id) qs.team_id = options.team_id;
+          if (options.sla_policy_id) qs.sla_policy_id = options.sla_policy_id;
+          if (options.assigned_agent_id) qs.assigned_agent_id = options.assigned_agent_id;
+          // Matched with LIKE '%label%' against the conversation's cached label list: a single string
+          if (options.label_list) qs.label_list = String(options.label_list).trim();
+
           if (operation === 'getAll') {
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
-            const options = this.getNodeParameter('options', i) as IDataObject;
-            const qs: IDataObject = {};
-            if (options.since) qs.since = new Date(options.since as string).getTime() / 1000;
-            if (options.until) qs.until = new Date(options.until as string).getTime() / 1000;
-            if (options.inbox_id) qs.inbox_id = options.inbox_id;
-            if (options.team_id) qs.team_id = options.team_id;
-            if (options.sla_policy_id) qs.sla_policy_id = options.sla_policy_id;
-            if (options.assigned_agent_id) qs.assigned_agent_id = options.assigned_agent_id;
-
-            if (returnAll) {
-              responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/applied_slas', {}, qs, 'payload');
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/applied_slas', {}, qs)) as IDataObject;
-              const payload = (result.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
-            }
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/applied_slas', {}, qs, 'payload', {
+              limit,
+              pageSize: 25,
+              itemIndex: i,
+            });
           } else if (operation === 'metrics') {
-            const options = this.getNodeParameter('options', i) as IDataObject;
-            const qs: IDataObject = {};
-            if (options.since) qs.since = new Date(options.since as string).getTime() / 1000;
-            if (options.until) qs.until = new Date(options.until as string).getTime() / 1000;
-            responseData = await chatwootApiRequest.call(this, 'GET', '/applied_slas/metrics', {}, qs);
+            responseData = await chatwootApiRequest.call(this, 'GET', '/applied_slas/metrics', {}, qs, { itemIndex: i });
           } else if (operation === 'download') {
-            const options = this.getNodeParameter('options', i) as IDataObject;
-            const qs: IDataObject = {};
-            if (options.since) qs.since = new Date(options.since as string).getTime() / 1000;
-            if (options.until) qs.until = new Date(options.until as string).getTime() / 1000;
-            responseData = await chatwootApiRequest.call(this, 'GET', '/applied_slas/download', {}, qs);
+            const csv = await chatwootApiRequest.call(this, 'GET', '/applied_slas/download', {}, qs, {
+              itemIndex: i,
+              json: false,
+              encoding: 'text',
+            });
+            // Written with plain CSV.generate_line (no CSVSafe escaping)
+            returnData.push(...(await buildCsvOutput.call(this, i, csv, { fileName: 'breached_conversation.csv', headerRow: 0 })));
+            continue;
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1801,13 +2165,13 @@ export class Chatwoot implements INodeType {
             const options = this.getNodeParameter('options', i, {}) as IDataObject;
             const qs: IDataObject = {};
             if (options.team_id) qs.team_id = options.team_id;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/live_reports/conversation_metrics', {}, qs);
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/live_reports/conversation_metrics', {}, qs, { itemIndex: i });
           } else if (operation === 'groupedConversationMetrics') {
             const groupBy = this.getNodeParameter('groupBy', i) as string;
             const options = this.getNodeParameter('options', i, {}) as IDataObject;
             const qs: IDataObject = { group_by: groupBy };
             if (options.team_id) qs.team_id = options.team_id;
-            responseData = await chatwootApiV2Request.call(this, 'GET', '/live_reports/grouped_conversation_metrics', {}, qs);
+            responseData = await chatwootApiV2Request.call(this, 'GET', '/live_reports/grouped_conversation_metrics', {}, qs, { itemIndex: i });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1817,15 +2181,19 @@ export class Chatwoot implements INodeType {
         // SUMMARY REPORT (v2 — per-entity summary metrics)
         // =====================================================================
         else if (resource === 'summaryReport') {
-          const since = Math.floor(new Date(this.getNodeParameter('since', i) as string).getTime() / 1000);
-          const until = Math.floor(new Date(this.getNodeParameter('until', i) as string).getTime() / 1000);
+          // Integer Unix seconds; an empty or invalid date fails here instead of sending NaN
+          const since = toUnixSeconds(this.getNodeParameter('since', i), 'Since');
+          const until = toUnixSeconds(this.getNodeParameter('until', i), 'Until');
+          if (since === undefined || until === undefined) {
+            throw new NodeOperationError(this.getNode(), 'Since and Until are required', { itemIndex: i });
+          }
           const options = this.getNodeParameter('options', i, {}) as IDataObject;
           const qs: IDataObject = { since, until };
           if (options.business_hours !== undefined) qs.business_hours = options.business_hours;
 
           // Operation maps directly to endpoint segment: agent, team, inbox, label, channel
           if (['agent', 'team', 'inbox', 'label', 'channel'].includes(operation)) {
-            responseData = await chatwootApiV2Request.call(this, 'GET', `/summary_reports/${operation}`, {}, qs);
+            responseData = await chatwootApiV2Request.call(this, 'GET', `/summary_reports/${operation}`, {}, qs, { itemIndex: i });
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }

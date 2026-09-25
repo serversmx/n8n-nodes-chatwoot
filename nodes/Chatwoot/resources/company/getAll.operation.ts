@@ -35,9 +35,22 @@ export const getAllOperation: INodeProperties[] = [
           { name: 'Domain', value: 'domain' },
           { name: 'Created At', value: 'created_at' },
           { name: 'Contacts Count', value: 'contacts_count' },
+          { name: 'Last Activity At', value: 'last_activity_at' },
         ],
         default: 'name',
-        description: 'Field to sort by',
+        description: 'Field to sort by (Last Activity At requires Chatwoot 4.14+)',
+      },
+      {
+        displayName: 'Sort Direction',
+        name: 'direction',
+        type: 'options',
+        options: [
+          { name: 'Ascending', value: 'asc' },
+          { name: 'Descending', value: 'desc' },
+        ],
+        default: 'asc',
+        description:
+          'Sort direction (Chatwoot sorts descending when the field is prefixed with "-")',
       },
     ],
   },
