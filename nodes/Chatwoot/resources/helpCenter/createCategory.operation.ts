@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { categoryFieldOptions } from './shared';
 
 export const createCategoryOperation: INodeProperties[] = [
   {
@@ -69,21 +70,6 @@ export const createCategoryOperation: INodeProperties[] = [
         operation: ['createCategory'],
       },
     },
-    options: [
-      {
-        displayName: 'Description',
-        name: 'description',
-        type: 'string',
-        default: '',
-        description: 'Description of the category',
-      },
-      {
-        displayName: 'Position',
-        name: 'position',
-        type: 'number',
-        default: 0,
-        description: 'Position of the category in the list',
-      },
-    ],
+    options: categoryFieldOptions,
   },
 ];

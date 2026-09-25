@@ -124,8 +124,8 @@ describe('Resource Operation Counts', () => {
     expect((conversationParticipantOperations.options as unknown[]).length).toBe(3);
   });
 
-  it('company should have 6 operations', () => {
-    expect((companyOperations.options as unknown[]).length).toBe(6);
+  it('company should have 14 operations', () => {
+    expect((companyOperations.options as unknown[]).length).toBe(14);
   });
 
   it('search should have 4 operations', () => {
@@ -144,12 +144,12 @@ describe('Resource Operation Counts', () => {
     expect((contactOperations.options as unknown[]).length).toBe(14);
   });
 
-  it('helpCenter should have 8 operations', () => {
-    expect((helpCenterOperations.options as unknown[]).length).toBe(8);
+  it('helpCenter should have 18 operations', () => {
+    expect((helpCenterOperations.options as unknown[]).length).toBe(18);
   });
 
-  it('csatSurvey should have 3 operations', () => {
-    expect((csatSurveyOperations.options as unknown[]).length).toBe(3);
+  it('csatSurvey should have 5 operations', () => {
+    expect((csatSurveyOperations.options as unknown[]).length).toBe(5);
   });
 
   it('profile should have 3 operations', () => {
@@ -160,8 +160,8 @@ describe('Resource Operation Counts', () => {
     expect((appliedSlaOperations.options as unknown[]).length).toBe(3);
   });
 
-  it('report should have 16 operations', () => {
-    expect((reportOperations.options as unknown[]).length).toBe(16);
+  it('report should have 19 operations', () => {
+    expect((reportOperations.options as unknown[]).length).toBe(19);
   });
 
   it('liveReport should have 2 operations', () => {

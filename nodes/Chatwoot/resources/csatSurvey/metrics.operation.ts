@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { csatFilterOptions } from './filters';
 
 export const metricsOperation: INodeProperties[] = [
   {
@@ -13,21 +14,6 @@ export const metricsOperation: INodeProperties[] = [
         operation: ['metrics'],
       },
     },
-    options: [
-      {
-        displayName: 'Since',
-        name: 'since',
-        type: 'dateTime',
-        default: '',
-        description: 'Start date for metrics',
-      },
-      {
-        displayName: 'Until',
-        name: 'until',
-        type: 'dateTime',
-        default: '',
-        description: 'End date for metrics',
-      },
-    ],
+    options: csatFilterOptions,
   },
 ];

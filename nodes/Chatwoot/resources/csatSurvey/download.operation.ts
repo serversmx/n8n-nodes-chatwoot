@@ -1,6 +1,9 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { csvOutputFields } from '../report/helpers';
+import { csatFilterOptions } from './filters';
 
 export const downloadOperation: INodeProperties[] = [
+  ...csvOutputFields('csatSurvey', ['download']),
   {
     displayName: 'Options',
     name: 'options',
@@ -13,21 +16,8 @@ export const downloadOperation: INodeProperties[] = [
         operation: ['download'],
       },
     },
-    options: [
-      {
-        displayName: 'Since',
-        name: 'since',
-        type: 'dateTime',
-        default: '',
-        description: 'Start date filter',
-      },
-      {
-        displayName: 'Until',
-        name: 'until',
-        type: 'dateTime',
-        default: '',
-        description: 'End date filter',
-      },
-    ],
+    description:
+      'Since and Until are required: Chatwoot writes the reporting period at the end of the CSV',
+    options: csatFilterOptions,
   },
 ];
