@@ -47,14 +47,15 @@ export const getAllOperation: INodeProperties[] = [
         name: 'includes_read',
         type: 'boolean',
         default: false,
-        description: 'Whether to include already-read notifications',
+        description:
+          'Whether to include notifications already marked as read (excluded by default)',
       },
       {
         displayName: 'Include Snoozed',
         name: 'includes_snoozed',
         type: 'boolean',
         default: false,
-        description: 'Whether to include snoozed notifications',
+        description: 'Whether to include snoozed notifications (excluded by default)',
       },
       {
         displayName: 'Sort Order',
@@ -65,7 +66,7 @@ export const getAllOperation: INodeProperties[] = [
           { name: 'Ascending', value: 'asc' },
         ],
         default: 'desc',
-        description: 'Sort order by last activity',
+        description: 'Sort by last activity time',
       },
     ],
   },

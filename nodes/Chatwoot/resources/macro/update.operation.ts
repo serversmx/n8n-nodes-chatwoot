@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { MACRO_ACTIONS_DESCRIPTION, MACRO_VISIBILITY_DESCRIPTION } from './create.operation';
 
 export const updateOperation: INodeProperties[] = [
   {
@@ -40,7 +41,7 @@ export const updateOperation: INodeProperties[] = [
         name: 'actions',
         type: 'json',
         default: '[]',
-        description: 'Array of action objects',
+        description: `Replaces all actions. ${MACRO_ACTIONS_DESCRIPTION}`,
       },
       {
         displayName: 'Visibility',
@@ -51,7 +52,7 @@ export const updateOperation: INodeProperties[] = [
           { name: 'Global', value: 'global' },
         ],
         default: 'personal',
-        description: 'Visibility scope of the macro',
+        description: `${MACRO_VISIBILITY_DESCRIPTION} When not set, the node keeps the current visibility (Chatwoot would otherwise clear it).`,
       },
     ],
   },

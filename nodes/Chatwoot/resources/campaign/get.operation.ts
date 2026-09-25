@@ -8,6 +8,6 @@ export const getOperation: INodeProperties[] = [
     required: true,
     default: 0,
     displayOptions: { show: { resource: ['campaign'], operation: ['get'] } },
-    description: 'The ID of the campaign to retrieve',
+    description: 'The ID of the campaign to retrieve (the "id" returned by Get Many)',
   },
 ];

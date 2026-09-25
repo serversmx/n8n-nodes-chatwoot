@@ -108,12 +108,12 @@ describe('Resource Operation Counts', () => {
     expect((macroOperations.options as unknown[]).length).toBe(6);
   });
 
-  it('notification should have 7 operations', () => {
-    expect((notificationOperations.options as unknown[]).length).toBe(7);
+  it('notification should have 10 operations', () => {
+    expect((notificationOperations.options as unknown[]).length).toBe(10);
   });
 
-  it('campaign should have 5 operations', () => {
-    expect((campaignOperations.options as unknown[]).length).toBe(5);
+  it('campaign should have 7 operations', () => {
+    expect((campaignOperations.options as unknown[]).length).toBe(7);
   });
 
   it('contactNote should have 4 operations', () => {
