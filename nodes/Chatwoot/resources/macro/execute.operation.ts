@@ -27,6 +27,31 @@ export const executeOperation: INodeProperties[] = [
         operation: ['execute'],
       },
     },
-    description: 'The ID of the conversation to execute the macro on',
+    description:
+      'The ID of the conversation to run the macro on (the conversation ID shown in Chatwoot)',
+  },
+  {
+    displayName: 'Options',
+    name: 'options',
+    type: 'collection',
+    placeholder: 'Add Option',
+    default: {},
+    displayOptions: {
+      show: {
+        resource: ['macro'],
+        operation: ['execute'],
+      },
+    },
+    options: [
+      {
+        displayName: 'Additional Conversation IDs',
+        name: 'additionalConversationIds',
+        type: 'string',
+        default: '',
+        placeholder: '12, 15, 18',
+        description:
+          'Comma-separated conversation IDs to run the macro on in the same request, besides the Conversation ID above',
+      },
+    ],
   },
 ];

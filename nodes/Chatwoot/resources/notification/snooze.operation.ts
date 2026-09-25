@@ -27,6 +27,7 @@ export const snoozeOperation: INodeProperties[] = [
         operation: ['snooze'],
       },
     },
-    description: 'When the notification should un-snooze',
+    description:
+      'When the notification should reappear. Accepts a date/time, an ISO 8601 string or a Unix timestamp (a value without a UTC offset is read in the n8n server timezone); the node sends it to Chatwoot as Unix seconds.',
   },
 ];

@@ -19,7 +19,8 @@ export const getAllOperation: INodeProperties[] = [
         name: 'search',
         type: 'string',
         default: '',
-        description: 'Search canned responses by short code or content',
+        description:
+          'Case-insensitive text matched anywhere in the short code or content. Results whose short code starts with it come first.',
       },
     ],
   },

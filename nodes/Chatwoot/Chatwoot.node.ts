@@ -51,7 +51,7 @@ import { auditLogOperations, auditLogFields } from './resources/auditLog';
 import { csatSurveyOperations, csatSurveyFields } from './resources/csatSurvey';
 import { macroOperations, macroFields } from './resources/macro';
 import { notificationOperations, notificationFields } from './resources/notification';
-import { campaignOperations, campaignFields } from './resources/campaign';
+import { campaignOperations, campaignFields, getCampaignInboxes } from './resources/campaign';
 import { contactNoteOperations, contactNoteFields } from './resources/contactNote';
 import { conversationParticipantOperations, conversationParticipantFields } from './resources/conversationParticipant';
 import { companyOperations, companyFields } from './resources/company';
@@ -60,6 +60,15 @@ import { slaPolicyOperations, slaPolicyFields } from './resources/slaPolicy';
 import { appliedSlaOperations, appliedSlaFields } from './resources/appliedSla';
 import { liveReportOperations, liveReportFields } from './resources/liveReport';
 import { summaryReportOperations, summaryReportFields } from './resources/summaryReport';
+
+// Resource-specific execute helpers
+import {
+  addLegacyConditionHint,
+  renameLegacyConditionKeys,
+  resolveExecutionDelay,
+} from './resources/automationRule/helpers';
+import { buildCampaignBody, needsCurrentTriggerRules } from './resources/campaign/helpers';
+import { toUnixSeconds } from './resources/notification/helpers';
 
 // Platform API Resource imports
 import { platformAccountOperations, platformAccountFields } from './resources/platformAccount';
@@ -314,6 +323,7 @@ export class Chatwoot implements INodeType {
       getPortals,
       getCategories,
       getIntegrations,
+      getCampaignInboxes,
     },
   };
 
@@ -558,27 +568,43 @@ export class Chatwoot implements INodeType {
         // CANNED RESPONSE
         // =====================================================================
         else if (resource === 'cannedResponse') {
+          const requestOptions = { itemIndex: i };
+          // Chatwoot requires params[:canned_response]; top-level short_code/content are wrapped by
+          // Rails wrap_parameters (same as the dashboard). Responses are plain objects / a plain array.
           if (operation === 'getAll') {
             const options = this.getNodeParameter('options', i) as IDataObject;
             const qs: IDataObject = {};
             if (options.search) qs.search = options.search;
 
-            responseData = await chatwootApiRequest.call(this, 'GET', '/canned_responses', {}, qs);
+            responseData = await chatwootApiRequest.call(this, 'GET', '/canned_responses', {}, qs, requestOptions);
           } else if (operation === 'create') {
             const shortCode = this.getNodeParameter('shortCode', i) as string;
             const content = this.getNodeParameter('content', i) as string;
 
             const body: IDataObject = { short_code: shortCode, content };
-            responseData = await chatwootApiRequest.call(this, 'POST', '/canned_responses', body);
+            responseData = await chatwootApiRequest.call(this, 'POST', '/canned_responses', body, {}, requestOptions);
           } else if (operation === 'update') {
             const cannedResponseId = validateId(this.getNodeParameter('cannedResponseId', i), 'Canned Response ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
 
-            const body: IDataObject = { ...updateFields };
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/canned_responses/${cannedResponseId}`, body);
+            // An empty body would fail with 422 "param is missing or the value is empty: canned_response"
+            const body: IDataObject = {};
+            if (updateFields.short_code) body.short_code = updateFields.short_code;
+            if (updateFields.content) body.content = updateFields.content;
+            if (Object.keys(body).length === 0) {
+              throw new NodeOperationError(this.getNode(), 'Add Short Code and/or Content to update', { itemIndex: i });
+            }
+            responseData = await chatwootApiRequest.call(
+              this,
+              'PATCH',
+              `/canned_responses/${cannedResponseId}`,
+              body,
+              {},
+              requestOptions,
+            );
           } else if (operation === 'delete') {
             const cannedResponseId = validateId(this.getNodeParameter('cannedResponseId', i), 'Canned Response ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/canned_responses/${cannedResponseId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/canned_responses/${cannedResponseId}`, {}, {}, requestOptions);
             responseData = { success: true, id: cannedResponseId };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
@@ -1092,15 +1118,30 @@ export class Chatwoot implements INodeType {
         // AUTOMATION RULE
         // =====================================================================
         else if (resource === 'automationRule') {
+          const requestOptions = { itemIndex: i };
+          // Rewrites the legacy 'company' condition key (Chatwoot 4.14+) and tells the user about it
+          const prepareConditions = (raw: unknown): IDataObject[] => {
+            const { conditions, renamed } = renameLegacyConditionKeys(parseJsonSafe(raw, 'conditions'));
+            if (renamed > 0) addLegacyConditionHint(this);
+            return conditions as IDataObject[];
+          };
+
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/automation_rules');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/automation_rules', {}, {}, requestOptions);
           } else if (operation === 'get') {
             const automationRuleId = validateId(this.getNodeParameter('automationRuleId', i), 'Automation Rule ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/automation_rules/${automationRuleId}`);
+            responseData = await chatwootApiRequest.call(
+              this,
+              'GET',
+              `/automation_rules/${automationRuleId}`,
+              {},
+              {},
+              requestOptions,
+            );
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const eventName = this.getNodeParameter('eventName', i) as string;
-            const conditions = parseJsonSafe(this.getNodeParameter('conditions', i), 'conditions');
+            const conditions = prepareConditions(this.getNodeParameter('conditions', i));
             const actions = parseJsonSafe(this.getNodeParameter('actions', i), 'actions');
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
@@ -1112,8 +1153,10 @@ export class Chatwoot implements INodeType {
             };
             if (additionalFields.description) body.description = additionalFields.description;
             if (additionalFields.active !== undefined) body.active = additionalFields.active;
+            const executionDelay = resolveExecutionDelay(additionalFields.execution_delay, 'create');
+            if (executionDelay !== undefined) body.execution_delay = executionDelay;
 
-            responseData = await chatwootApiRequest.call(this, 'POST', '/automation_rules', body);
+            responseData = await chatwootApiRequest.call(this, 'POST', '/automation_rules', body, {}, requestOptions);
           } else if (operation === 'update') {
             const automationRuleId = validateId(this.getNodeParameter('automationRuleId', i), 'Automation Rule ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
@@ -1121,14 +1164,36 @@ export class Chatwoot implements INodeType {
             const body: IDataObject = {};
             if (updateFields.name) body.name = updateFields.name;
             if (updateFields.description) body.description = updateFields.description;
+            if (updateFields.event_name) body.event_name = updateFields.event_name;
             if (updateFields.active !== undefined) body.active = updateFields.active;
-            if (updateFields.conditions) body.conditions = parseJsonSafe(updateFields.conditions, 'conditions');
+            if (updateFields.conditions) body.conditions = prepareConditions(updateFields.conditions);
             if (updateFields.actions) body.actions = parseJsonSafe(updateFields.actions, 'actions');
+            const executionDelay = resolveExecutionDelay(updateFields.execution_delay, 'update');
+            if (executionDelay !== undefined) body.execution_delay = executionDelay;
 
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/automation_rules/${automationRuleId}`, body);
+            responseData = await chatwootApiRequest.call(
+              this,
+              'PATCH',
+              `/automation_rules/${automationRuleId}`,
+              body,
+              {},
+              requestOptions,
+            );
+          } else if (operation === 'clone') {
+            // POST /automation_rules/:automation_rule_id/clone (nested route); 4.17+ answers 422 when the
+            // rule has a delay and the account lost the delayed_automations feature
+            const automationRuleId = validateId(this.getNodeParameter('automationRuleId', i), 'Automation Rule ID');
+            responseData = await chatwootApiRequest.call(
+              this,
+              'POST',
+              `/automation_rules/${automationRuleId}/clone`,
+              {},
+              {},
+              requestOptions,
+            );
           } else if (operation === 'delete') {
             const automationRuleId = validateId(this.getNodeParameter('automationRuleId', i), 'Automation Rule ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/automation_rules/${automationRuleId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/automation_rules/${automationRuleId}`, {}, {}, requestOptions);
             responseData = { success: true, id: automationRuleId };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
@@ -1729,45 +1794,79 @@ export class Chatwoot implements INodeType {
         // MACRO
         // =====================================================================
         else if (resource === 'macro') {
+          const requestOptions = { itemIndex: i };
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/macros');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/macros', {}, {}, requestOptions);
           } else if (operation === 'get') {
             const macroId = validateId(this.getNodeParameter('macroId', i), 'Macro ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/macros/${macroId}`);
+            responseData = await chatwootApiRequest.call(this, 'GET', `/macros/${macroId}`, {}, {}, requestOptions);
           } else if (operation === 'create') {
             const name = this.getNodeParameter('name', i) as string;
             const actions = this.getNodeParameter('actions', i) as string;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
+            // Macro#set_visibility assigns params[:visibility] as-is: omitting it stores NULL, and a
+            // macro that is neither personal nor global never shows up in Get Many
             const body: IDataObject = {
               name,
               actions: parseJsonSafe(actions, 'actions'),
+              visibility: additionalFields.visibility || 'personal',
             };
-            if (additionalFields.visibility) body.visibility = additionalFields.visibility;
 
-            responseData = await chatwootApiRequest.call(this, 'POST', '/macros', body);
+            responseData = await chatwootApiRequest.call(this, 'POST', '/macros', body, {}, requestOptions);
           } else if (operation === 'update') {
             const macroId = validateId(this.getNodeParameter('macroId', i), 'Macro ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
 
             const body: IDataObject = {};
             if (updateFields.name) body.name = updateFields.name;
-            if (updateFields.visibility) body.visibility = updateFields.visibility;
+            if (updateFields.visibility) {
+              body.visibility = updateFields.visibility;
+            } else {
+              // Same NULL-visibility trap as Create: resend the current visibility
+              const current = (await chatwootApiRequest.call(
+                this,
+                'GET',
+                `/macros/${macroId}`,
+                {},
+                {},
+                requestOptions,
+              )) as IDataObject;
+              const currentMacro = (current.payload ?? current) as IDataObject;
+              body.visibility = currentMacro.visibility || 'personal';
+            }
             if (updateFields.actions) {
               body.actions = parseJsonSafe(updateFields.actions, 'actions');
             }
 
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/macros/${macroId}`, body);
+            responseData = await chatwootApiRequest.call(this, 'PATCH', `/macros/${macroId}`, body, {}, requestOptions);
           } else if (operation === 'delete') {
             const macroId = validateId(this.getNodeParameter('macroId', i), 'Macro ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/macros/${macroId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/macros/${macroId}`, {}, {}, requestOptions);
             responseData = { success: true, id: macroId };
           } else if (operation === 'execute') {
             const macroId = validateId(this.getNodeParameter('macroId', i), 'Macro ID');
             const conversationId = validateId(this.getNodeParameter('conversationId', i), 'Conversation ID');
+            const options = this.getNodeParameter('options', i, {}) as IDataObject;
 
-            const body: IDataObject = { conversation_ids: [conversationId] };
-            responseData = await chatwootApiRequest.call(this, 'POST', `/macros/${macroId}/execute`, body);
+            const conversationIds = [conversationId];
+            for (const raw of String(options.additionalConversationIds ?? '').split(',')) {
+              if (!raw.trim()) continue;
+              const id = validateId(raw.trim(), 'Additional Conversation IDs');
+              if (!conversationIds.includes(id)) conversationIds.push(id);
+            }
+
+            // MacrosExecutionJob runs later and answers `head :ok`; since 4.18 it skips (and only
+            // logs) conversations the token user cannot see, so the output reports "queued"
+            await chatwootApiRequest.call(
+              this,
+              'POST',
+              `/macros/${macroId}/execute`,
+              { conversation_ids: conversationIds },
+              {},
+              requestOptions,
+            );
+            responseData = { success: true, status: 'queued', macroId, conversationIds };
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1777,61 +1876,120 @@ export class Chatwoot implements INodeType {
         // NOTIFICATION
         // =====================================================================
         else if (resource === 'notification') {
+          const requestOptions = { itemIndex: i };
           if (operation === 'getAll') {
             const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
             const options = this.getNodeParameter('options', i) as IDataObject;
 
+            // NotificationFinder reads params[:includes] (serialized as includes[]=read&includes[]=snoozed)
             const qs: IDataObject = {};
             const includes: string[] = [];
             if (options.includes_read) includes.push('read');
             if (options.includes_snoozed) includes.push('snoozed');
-            if (includes.length > 0) qs['includes[]'] = includes;
+            if (includes.length > 0) qs.includes = includes;
             if (options.sort_order) qs.sort_order = options.sort_order;
 
-            if (returnAll) {
-              const allItems: IDataObject[] = [];
-              let page = 1;
-              let hasMore = true;
-              while (hasMore) {
-                qs.page = page;
-                const result = (await chatwootApiRequest.call(this, 'GET', '/notifications', {}, qs)) as IDataObject;
-                const data = result.data as IDataObject;
-                const payload = (data?.payload || []) as IDataObject[];
-                allItems.push(...payload);
-                // Chatwoot notifications are 15/page — stop when we get fewer than a full page
-                hasMore = payload.length >= 15;
-                page += 1;
-                if (page > 100) break;
-              }
-              responseData = allItems;
-            } else {
-              const limit = this.getNodeParameter('limit', i) as number;
-              qs.page = 1;
-              const result = (await chatwootApiRequest.call(this, 'GET', '/notifications', {}, qs)) as IDataObject;
-              const data = result.data as IDataObject;
-              const payload = (data?.payload || []) as IDataObject[];
-              responseData = payload.slice(0, limit);
-            }
+            // { data: { meta: { count, unread_count, current_page }, payload: [...] } }, 15 per page
+            responseData = await chatwootApiRequestAllItems.call(this, 'GET', '/notifications', {}, qs, 'data.payload', {
+              limit,
+              pageSize: 15,
+              itemIndex: i,
+            });
           } else if (operation === 'markRead') {
             const notificationId = validateId(this.getNodeParameter('notificationId', i), 'Notification ID');
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/notifications/${notificationId}`);
+            responseData = await chatwootApiRequest.call(
+              this,
+              'PATCH',
+              `/notifications/${notificationId}`,
+              {},
+              {},
+              requestOptions,
+            );
           } else if (operation === 'delete') {
             const notificationId = validateId(this.getNodeParameter('notificationId', i), 'Notification ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/notifications/${notificationId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/notifications/${notificationId}`, {}, {}, requestOptions);
             responseData = { success: true, id: notificationId };
+          } else if (operation === 'deleteAll') {
+            // Anything but 'read' deletes every notification; the job runs asynchronously (`head :ok`)
+            const deleteType = this.getNodeParameter('deleteType', i) as string;
+            const body = { type: deleteType };
+            await chatwootApiRequest.call(this, 'POST', '/notifications/destroy_all', body, {}, requestOptions);
+            responseData = { success: true, status: 'queued', type: deleteType };
           } else if (operation === 'readAll') {
-            responseData = await chatwootApiRequest.call(this, 'POST', '/notifications/read_all');
+            // `head :ok`
+            await chatwootApiRequest.call(this, 'POST', '/notifications/read_all', {}, {}, requestOptions);
+            responseData = { success: true };
           } else if (operation === 'unreadCount') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/notifications/unread_count');
+            // Chatwoot renders the bare number (`render json: @unread_count`)
+            const count = await chatwootApiRequest.call(
+              this,
+              'GET',
+              '/notifications/unread_count',
+              {},
+              {},
+              requestOptions,
+            );
+            const unreadCount = Number(count);
+            responseData = Number.isFinite(unreadCount) ? { unread_count: unreadCount } : (count as IDataObject);
           } else if (operation === 'markUnread') {
             const notificationId = validateId(this.getNodeParameter('notificationId', i), 'Notification ID');
-            responseData = await chatwootApiRequest.call(this, 'POST', `/notifications/${notificationId}/unread`);
+            responseData = await chatwootApiRequest.call(
+              this,
+              'POST',
+              `/notifications/${notificationId}/unread`,
+              {},
+              {},
+              requestOptions,
+            );
           } else if (operation === 'snooze') {
             const notificationId = validateId(this.getNodeParameter('notificationId', i), 'Notification ID');
-            const snoozedUntil = this.getNodeParameter('snoozedUntil', i) as string;
-            responseData = await chatwootApiRequest.call(this, 'POST', `/notifications/${notificationId}/snooze`, {
-              snoozed_until: snoozedUntil,
-            });
+            const snoozedUntil = toUnixSeconds(this.getNodeParameter('snoozedUntil', i), 'Snoozed Until');
+            responseData = await chatwootApiRequest.call(
+              this,
+              'POST',
+              `/notifications/${notificationId}/snooze`,
+              { snoozed_until: snoozedUntil },
+              {},
+              requestOptions,
+            );
+          } else if (operation === 'getSettings') {
+            responseData = await chatwootApiRequest.call(this, 'GET', '/notification_settings', {}, {}, requestOptions);
+          } else if (operation === 'updateSettings') {
+            const settings = this.getNodeParameter('notificationSettings', i) as IDataObject;
+            if (settings.selected_email_flags === undefined && settings.selected_push_flags === undefined) {
+              throw new NodeOperationError(
+                this.getNode(),
+                'Add Email Notifications and/or Push Notifications to update',
+                { itemIndex: i },
+              );
+            }
+
+            // The controller assigns both lists: a missing one would clear every flag of that channel,
+            // so read the current settings and resend the list the user did not set
+            let emailFlags = settings.selected_email_flags as string[] | undefined;
+            let pushFlags = settings.selected_push_flags as string[] | undefined;
+            if (emailFlags === undefined || pushFlags === undefined) {
+              const current = (await chatwootApiRequest.call(
+                this,
+                'GET',
+                '/notification_settings',
+                {},
+                {},
+                requestOptions,
+              )) as IDataObject;
+              emailFlags ??= (current.selected_email_flags as string[] | undefined) ?? [];
+              pushFlags ??= (current.selected_push_flags as string[] | undefined) ?? [];
+            }
+
+            responseData = await chatwootApiRequest.call(
+              this,
+              'PATCH',
+              '/notification_settings',
+              { notification_settings: { selected_email_flags: emailFlags, selected_push_flags: pushFlags } },
+              {},
+              requestOptions,
+            );
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
@@ -1841,38 +1999,121 @@ export class Chatwoot implements INodeType {
         // CAMPAIGN
         // =====================================================================
         else if (resource === 'campaign') {
+          const requestOptions = { itemIndex: i };
+          // Campaign routes use the display ID (the "id" in every campaign response).
+          // Fields are sent at the top level like the Chatwoot dashboard does: Rails wraps them into
+          // params[:campaign] (wrap_parameters, the Campaign model has all these columns).
           if (operation === 'getAll') {
-            responseData = await chatwootApiRequest.call(this, 'GET', '/campaigns');
+            responseData = await chatwootApiRequest.call(this, 'GET', '/campaigns', {}, {}, requestOptions);
           } else if (operation === 'get') {
             const campaignId = validateId(this.getNodeParameter('campaignId', i), 'Campaign ID');
-            responseData = await chatwootApiRequest.call(this, 'GET', `/campaigns/${campaignId}`);
+            responseData = await chatwootApiRequest.call(
+              this,
+              'GET',
+              `/campaigns/${campaignId}`,
+              {},
+              {},
+              requestOptions,
+            );
           } else if (operation === 'create') {
             const title = this.getNodeParameter('title', i) as string;
             const message = this.getNodeParameter('message', i) as string;
+            const inbox = this.getNodeParameter('inboxId', i, '') as string | number;
             const additionalFields = this.getNodeParameter('additionalFields', i) as IDataObject;
 
-            const body: IDataObject = { title, message };
-            if (additionalFields.inbox_id) body.inbox_id = additionalFields.inbox_id;
-            if (additionalFields.scheduled_at) body.scheduled_at = additionalFields.scheduled_at;
-            if (additionalFields.audience) {
-              body.audience = parseJsonSafe(additionalFields.audience, 'audience');
+            // Campaign validates inbox_id presence: fall back to the pre-0.9.0 Additional Fields > Inbox ID
+            let inboxId: number | undefined;
+            if (inbox !== '' && inbox !== 0 && inbox !== null && inbox !== undefined) {
+              inboxId = validateId(inbox, 'Inbox');
+            } else if (additionalFields.inbox_id) {
+              inboxId = validateId(additionalFields.inbox_id, 'Inbox ID');
+            }
+            if (inboxId === undefined) {
+              throw new NodeOperationError(this.getNode(), 'Inbox is required to create a campaign', {
+                itemIndex: i,
+                description:
+                  'Choose a Website, SMS, Twilio SMS or WhatsApp inbox in the "Inbox" field. API channel inboxes cannot run campaigns.',
+              });
             }
 
-            responseData = await chatwootApiRequest.call(this, 'POST', '/campaigns', body);
+            const body: IDataObject = {
+              ...buildCampaignBody(additionalFields, 'create'),
+              title,
+              message,
+              inbox_id: inboxId,
+            };
+
+            responseData = await chatwootApiRequest.call(this, 'POST', '/campaigns', body, {}, requestOptions);
           } else if (operation === 'update') {
             const campaignId = validateId(this.getNodeParameter('campaignId', i), 'Campaign ID');
             const updateFields = this.getNodeParameter('updateFields', i) as IDataObject;
 
-            const body: IDataObject = {};
-            if (updateFields.title) body.title = updateFields.title;
-            if (updateFields.message) body.message = updateFields.message;
-            if (updateFields.scheduled_at) body.scheduled_at = updateFields.scheduled_at;
+            // trigger_rules is replaced as a whole: keep the current URL / time when only one changes
+            let currentTriggerRules: IDataObject | undefined;
+            if (needsCurrentTriggerRules(updateFields)) {
+              const current = (await chatwootApiRequest.call(
+                this,
+                'GET',
+                `/campaigns/${campaignId}`,
+                {},
+                {},
+                requestOptions,
+              )) as IDataObject;
+              currentTriggerRules = (current.trigger_rules as IDataObject | undefined) ?? {};
+            }
 
-            responseData = await chatwootApiRequest.call(this, 'PATCH', `/campaigns/${campaignId}`, body);
+            const body = buildCampaignBody(updateFields, 'update', currentTriggerRules);
+            if (Object.keys(body).length === 0) {
+              throw new NodeOperationError(
+                this.getNode(),
+                'Add at least one field to update in "Update Fields"',
+                { itemIndex: i },
+              );
+            }
+
+            responseData = await chatwootApiRequest.call(
+              this,
+              'PATCH',
+              `/campaigns/${campaignId}`,
+              body,
+              {},
+              requestOptions,
+            );
           } else if (operation === 'delete') {
             const campaignId = validateId(this.getNodeParameter('campaignId', i), 'Campaign ID');
-            await chatwootApiRequest.call(this, 'DELETE', `/campaigns/${campaignId}`);
+            await chatwootApiRequest.call(this, 'DELETE', `/campaigns/${campaignId}`, {}, {}, requestOptions);
             responseData = { success: true, id: campaignId };
+          } else if (operation === 'getMetrics') {
+            // Enterprise route (4.17+). 401 unless the campaign is a one-off WhatsApp campaign and the
+            // account has whatsapp_campaign; 404 on Community Edition
+            const campaignId = validateId(this.getNodeParameter('campaignId', i), 'Campaign ID');
+            responseData = await chatwootApiRequest.call(
+              this,
+              'GET',
+              `/campaigns/${campaignId}/analytics/metrics`,
+              {},
+              {},
+              requestOptions,
+            );
+          } else if (operation === 'getRecipients') {
+            const campaignId = validateId(this.getNodeParameter('campaignId', i), 'Campaign ID');
+            const returnAll = this.getNodeParameter('returnAll', i) as boolean;
+            const limit = returnAll ? undefined : (this.getNodeParameter('limit', i) as number);
+            const options = this.getNodeParameter('options', i) as IDataObject;
+
+            const qs: IDataObject = {};
+            if (options.status) qs.status = options.status;
+
+            // { payload: [...], meta: { current_page, total_pages, total_count } }, 25 per page
+            responseData = await chatwootApiRequestAllItems.call(
+              this,
+              'GET',
+              `/campaigns/${campaignId}/analytics/contacts`,
+              {},
+              qs,
+              'payload',
+              { limit, pageSize: 25, itemIndex: i },
+            );
           } else {
             throw new NodeOperationError(this.getNode(), `Operation "${operation}" not supported`, { itemIndex: i });
           }
