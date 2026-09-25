@@ -1,5 +1,18 @@
-import { validateId, simplifyResponse, validateString, normalizeBaseUrl, parseJsonSafe } from '../nodes/Chatwoot/GenericFunctions';
+import {
+  validateId,
+  simplifyResponse,
+  validateString,
+  normalizeBaseUrl,
+  parseJsonSafe,
+  chatwootApiRequest,
+  chatwootApiRequestAllItems,
+  chatwootApiRequestAllMessages,
+  getChatwootErrorHint,
+  DEFAULT_MAX_PAGES,
+  MESSAGES_PAGE_SIZE,
+} from '../nodes/Chatwoot/GenericFunctions';
 import type { IDataObject } from 'n8n-workflow';
+import { createMockExecuteFunctions } from './helpers/mockExecuteFunctions';
 
 describe('GenericFunctions', () => {
   // =========================================================================
@@ -291,41 +304,41 @@ describe('GenericFunctions', () => {
   });
 
   // =========================================================================
-  // Error message mapping
+  // Error hints (Chatwoot's own message is used as the error message; the hint is the description)
   // =========================================================================
-  describe('error message mapping', () => {
-    const getErrorMessage = (statusCode: number, defaultMessage: string): string => {
-      const errorMessages: Record<number, string> = {
-        400: 'Bad Request: The request was invalid. Please check your input parameters.',
-        401: 'Unauthorized: Invalid API token. Please verify your API Access Token in Chatwoot Profile Settings.',
-        403: 'Forbidden: You do not have permission to access this resource. Check your user role and inbox permissions.',
-        404: 'Not Found: The requested resource does not exist. Please verify the ID is correct.',
-        422: 'Unprocessable Entity: The request data is invalid. Please check required fields and data formats.',
-        429: 'Rate Limited: Too many requests. Please wait before making more requests (limit: 60/minute).',
-        500: 'Server Error: Chatwoot server encountered an error. Please try again later.',
-        502: 'Bad Gateway: Chatwoot server is temporarily unavailable. Please try again later.',
-        503: 'Service Unavailable: Chatwoot is undergoing maintenance. Please try again later.',
-      };
-      return errorMessages[statusCode] || defaultMessage;
-    };
-
+  describe('error hints', () => {
     it.each([
-      [401, 'Unauthorized'],
+      [401, 'access token'],
+      [402, 'Payment required'],
       [403, 'Forbidden'],
-      [404, 'Not Found'],
-      [422, 'Unprocessable Entity'],
-      [429, 'Rate Limited'],
-      [500, 'Server Error'],
-      [502, 'Bad Gateway'],
-      [503, 'Service Unavailable'],
-    ])('should return specific message for %d', (code, expectedSubstring) => {
-      const msg = getErrorMessage(code, 'default');
-      expect(msg).toContain(expectedSubstring);
+      [404, 'Not found'],
+      [422, 'validation error'],
+      [429, 'Rate limited'],
+      [500, 'internal error'],
+      [502, 'temporarily unavailable'],
+      [503, 'temporarily unavailable'],
+      [504, 'temporarily unavailable'],
+    ])('should return a specific hint for %d', (code, expectedSubstring) => {
+      expect(getChatwootErrorHint(code, undefined)).toContain(expectedSubstring);
     });
 
-    it('should return default message for unknown status codes', () => {
-      expect(getErrorMessage(418, 'I am a teapot')).toBe('I am a teapot');
-      expect(getErrorMessage(504, 'Gateway Timeout')).toBe('Gateway Timeout');
+    it('401 is not blindly reported as an invalid token (authorization failures since 4.14)', () => {
+      expect(getChatwootErrorHint(401, 'Invalid Access Token')).toContain('was rejected');
+      expect(getChatwootErrorHint(401, 'You are not authorized to do this action')).not.toContain(
+        'was rejected',
+      );
+    });
+
+    it('429 hint lists the real Chatwoot limits, not "60/minute"', () => {
+      const hint = getChatwootErrorHint(429, 'Retry later');
+      expect(hint).not.toContain('60/minute');
+      expect(hint).toContain('3000 requests/min per IP');
+      expect(hint).toContain('RACK_ATTACK_ALLOWED_IPS');
+    });
+
+    it('should return a generic hint for unknown status codes', () => {
+      expect(getChatwootErrorHint(418, undefined)).toBe('Chatwoot rejected the request.');
+      expect(getChatwootErrorHint(507, undefined)).toBe('Chatwoot returned a server error.');
     });
   });
 
@@ -351,44 +364,43 @@ describe('GenericFunctions', () => {
   });
 
   // =========================================================================
-  // Request body / QS handling
+  // Request body / QS handling (real helper, mocked httpRequest)
   // =========================================================================
   describe('request body handling', () => {
-    function processOptions(method: string, body: Record<string, unknown>, qs: Record<string, unknown>) {
-      const options: Record<string, unknown> = { method, body, qs };
-      if (method === 'GET' || method === 'DELETE' || Object.keys(body).length === 0) {
-        delete options.body;
-      }
-      if (Object.keys(qs).length === 0) {
-        delete options.qs;
-      }
-      return options;
+    async function send(method: 'GET' | 'POST' | 'DELETE', body: IDataObject, qs: IDataObject) {
+      const mock = createMockExecuteFunctions({ responses: [{ url: '/x' }] });
+      await chatwootApiRequest.call(mock.ctx, method, '/x', body, qs);
+      return mock.calls[0].options;
     }
 
-    it('strips body for GET', () => {
-      expect(processOptions('GET', { a: 1 }, {})).not.toHaveProperty('body');
+    it('strips body for GET', async () => {
+      expect(await send('GET', { a: 1 }, {})).not.toHaveProperty('body');
     });
 
-    it('strips body for DELETE', () => {
-      expect(processOptions('DELETE', {}, {})).not.toHaveProperty('body');
+    it('keeps a non-empty body for DELETE (Chatwoot reads user_ids from it)', async () => {
+      expect((await send('DELETE', { user_ids: [1] }, {})).body).toEqual({ user_ids: [1] });
     });
 
-    it('keeps body for POST with data', () => {
-      const opts = processOptions('POST', { content: 'hi' }, {});
-      expect(opts.body).toEqual({ content: 'hi' });
+    it('strips an empty body for DELETE', async () => {
+      expect(await send('DELETE', {}, {})).not.toHaveProperty('body');
     });
 
-    it('strips empty body for POST', () => {
-      expect(processOptions('POST', {}, {})).not.toHaveProperty('body');
+    it('keeps body for POST with data', async () => {
+      expect((await send('POST', { content: 'hi' }, {})).body).toEqual({ content: 'hi' });
     });
 
-    it('strips empty qs', () => {
-      expect(processOptions('GET', {}, {})).not.toHaveProperty('qs');
+    it('strips empty body for POST', async () => {
+      expect(await send('POST', {}, {})).not.toHaveProperty('body');
     });
 
-    it('keeps non-empty qs', () => {
-      const opts = processOptions('GET', {}, { page: 1 });
-      expect(opts.qs).toEqual({ page: 1 });
+    it('strips empty qs', async () => {
+      expect(await send('GET', {}, {})).not.toHaveProperty('qs');
+    });
+
+    it('keeps non-empty qs and serializes arrays with brackets', async () => {
+      const options = await send('GET', {}, { page: 1 });
+      expect(options.qs).toEqual({ page: 1 });
+      expect(options.arrayFormat).toBe('brackets');
     });
   });
 
@@ -396,32 +408,47 @@ describe('GenericFunctions', () => {
   // Pagination patterns
   // =========================================================================
   describe('pagination patterns', () => {
-    it('page-based: detects end via meta.total_pages', () => {
-      const meta = { current_page: 3, total_pages: 3 };
-      expect(meta.current_page >= meta.total_pages).toBe(true);
+    it('page-based: detects end via meta.total_pages', async () => {
+      const mock = createMockExecuteFunctions({
+        responses: [{ url: '/x', body: { meta: { current_page: 1, total_pages: 1 }, payload: [{ id: 1 }] } }],
+      });
+      await chatwootApiRequestAllItems.call(mock.ctx, 'GET', '/x');
+      expect(mock.calls).toHaveLength(1);
     });
 
-    it('page-based: detects end via items < perPage', () => {
-      expect([1, 2, 3].length < 25).toBe(true);
+    it('page-based: detects end via items < first page size', async () => {
+      const mock = createMockExecuteFunctions({
+        responses: [
+          { url: '/x', body: { payload: [{ id: 1 }, { id: 2 }] } },
+          { url: '/x', body: { payload: [{ id: 3 }] } },
+        ],
+      });
+      expect(await chatwootApiRequestAllItems.call(mock.ctx, 'GET', '/x')).toHaveLength(3);
     });
 
-    it('page-based: safety limit at 100 pages', () => {
-      expect(101 > 100).toBe(true);
+    it('page-based: the page cap raises an error instead of silently truncating', () => {
+      expect(DEFAULT_MAX_PAGES).toBeGreaterThanOrEqual(500);
     });
 
-    it('cursor-based: uses oldest message id as before param', () => {
-      const messages = [{ id: 100 }, { id: 99 }, { id: 98 }];
-      const before = messages[messages.length - 1].id;
-      expect(before).toBe(98);
+    it('cursor-based: pages are ascending, so the next before is the smallest id (messages[0])', async () => {
+      const page = Array.from({ length: MESSAGES_PAGE_SIZE }, (_, i) => ({ id: 81 + i }));
+      const mock = createMockExecuteFunctions({
+        responses: [
+          { url: '/conversations/1/messages', body: { payload: page } },
+          { url: '/conversations/1/messages', body: { payload: [{ id: 80 }] } },
+        ],
+      });
+      await chatwootApiRequestAllMessages.call(mock.ctx, 1);
+      expect(mock.calls[1].qs).toEqual({ before: 81 });
     });
 
-    it('cursor-based: respects limit', () => {
-      const all = Array.from({ length: 50 }, (_, i) => ({ id: i }));
-      expect(all.slice(0, 20)).toHaveLength(20);
-    });
-
-    it('cursor-based: safety limit at 10000 messages', () => {
-      expect(10001 > 10000).toBe(true);
+    it('cursor-based: limit keeps the most recent messages, in ascending order', async () => {
+      const page = Array.from({ length: MESSAGES_PAGE_SIZE }, (_, i) => ({ id: 81 + i }));
+      const mock = createMockExecuteFunctions({
+        responses: [{ url: '/conversations/1/messages', body: { payload: page } }],
+      });
+      const result = await chatwootApiRequestAllMessages.call(mock.ctx, 1, 3);
+      expect(result.map((m) => m.id)).toEqual([98, 99, 100]);
     });
 
     it('handles response format: { payload: [...] }', () => {

@@ -35,7 +35,7 @@
   "scripts": {
     "build": "tsc && npm run copy:icons",
     "build:watch": "tsc --watch",
-    "copy:icons": "cp nodes/Chatwoot/*.svg nodes/Chatwoot/*.node.json dist/nodes/Chatwoot/ 2>/dev/null || true",
+    "copy:icons": "mkdir -p dist/nodes/Chatwoot && cp nodes/Chatwoot/*.svg nodes/Chatwoot/*.node.json dist/nodes/Chatwoot/",
     "dev": "npm run build:watch",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
@@ -76,6 +76,6 @@
     "typescript": "^5.3.3"
   },
   "peerDependencies": {
-    "n8n-workflow": ">=1.0.0"
+    "n8n-workflow": "*"
   }
 }

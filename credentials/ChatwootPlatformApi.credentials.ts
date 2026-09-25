@@ -2,12 +2,14 @@ import type {
   IAuthenticateGeneric,
   ICredentialTestRequest,
   ICredentialType,
+  Icon,
   INodeProperties,
 } from 'n8n-workflow';
 
 export class ChatwootPlatformApi implements ICredentialType {
   name = 'chatwootPlatformApi';
   displayName = 'Chatwoot Platform API';
+  icon: Icon = 'file:../nodes/Chatwoot/chatwoot.svg';
   documentationUrl = 'https://www.chatwoot.com/developers/api/#tag/Platform';
   properties: INodeProperties[] = [
     {

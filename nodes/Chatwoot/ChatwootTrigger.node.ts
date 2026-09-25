@@ -6,6 +6,7 @@ import type {
 	IWebhookFunctions,
 	IWebhookResponseData,
 } from 'n8n-workflow';
+import { NodeConnectionTypes } from 'n8n-workflow';
 
 import { chatwootApiRequest } from './GenericFunctions';
 import type { TriggerEventType, IWebhook } from './types';
@@ -23,7 +24,7 @@ export class ChatwootTrigger implements INodeType {
 			name: 'Chatwoot Trigger',
 		},
 		inputs: [],
-		outputs: ['main'],
+		outputs: [NodeConnectionTypes.Main],
 		credentials: [
 			{
 				name: 'chatwootApi',

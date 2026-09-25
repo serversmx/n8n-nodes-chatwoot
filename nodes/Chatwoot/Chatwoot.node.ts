@@ -5,7 +5,7 @@ import type {
   INodeType,
   INodeTypeDescription,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import {
   chatwootApiRequest,
@@ -14,6 +14,7 @@ import {
   chatwootApiRequestAllMessages,
   chatwootPlatformApiRequest,
   chatwootPublicApiRequest,
+  getHttpStatus,
   validateId,
   parseJsonSafe,
   getAgents,
@@ -82,8 +83,9 @@ export class Chatwoot implements INodeType {
     defaults: {
       name: 'Chatwoot',
     },
-    inputs: ['main'],
-    outputs: ['main'],
+    inputs: [NodeConnectionTypes.Main],
+    outputs: [NodeConnectionTypes.Main],
+    usableAsTool: true,
     credentials: [
       {
         name: 'chatwootApi',
@@ -2070,15 +2072,26 @@ export class Chatwoot implements INodeType {
 
         returnData.push(...executionData);
       } catch (error) {
+        // Wrap plain errors (e.g. validateId) and make sure every error points at its item
+        const nodeError =
+          error instanceof NodeApiError || error instanceof NodeOperationError
+            ? error
+            : new NodeOperationError(this.getNode(), error as Error, { itemIndex: i });
+        if (nodeError.context.itemIndex === undefined) nodeError.context.itemIndex = i;
+
         if (this.continueOnFail()) {
+          const errorJson: IDataObject = { error: nodeError.message };
+          if (nodeError.description) errorJson.description = nodeError.description;
+          const httpStatus = getHttpStatus(nodeError);
+          if (httpStatus) errorJson.httpCode = String(httpStatus);
           const executionData = this.helpers.constructExecutionMetaData(
-            this.helpers.returnJsonArray({ error: (error as Error).message }),
+            this.helpers.returnJsonArray(errorJson),
             { itemData: { item: i } },
           );
           returnData.push(...executionData);
           continue;
         }
-        throw error;
+        throw nodeError;
       }
     }
 

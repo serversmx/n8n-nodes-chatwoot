@@ -1,12 +1,9 @@
-import type {
-  ICredentialTestRequest,
-  ICredentialType,
-  INodeProperties,
-} from 'n8n-workflow';
+import type { ICredentialTestRequest, ICredentialType, Icon, INodeProperties } from 'n8n-workflow';
 
 export class ChatwootPublicApi implements ICredentialType {
   name = 'chatwootPublicApi';
   displayName = 'Chatwoot Public API';
+  icon: Icon = 'file:../nodes/Chatwoot/chatwoot.svg';
   documentationUrl = 'https://www.chatwoot.com/developers/api/#tag/Contacts-API';
   properties: INodeProperties[] = [
     {
