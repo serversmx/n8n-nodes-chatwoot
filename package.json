@@ -16,17 +16,17 @@
     "crm"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/RenatoAscencio/n8n-nodes-chatwoot",
+  "homepage": "https://github.com/serversmx/n8n-nodes-chatwoot",
   "author": {
     "name": "Renato Ascencio",
     "email": "renato_ascencio@hotmail.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RenatoAscencio/n8n-nodes-chatwoot.git"
+    "url": "git+https://github.com/serversmx/n8n-nodes-chatwoot.git"
   },
   "bugs": {
-    "url": "https://github.com/RenatoAscencio/n8n-nodes-chatwoot/issues"
+    "url": "https://github.com/serversmx/n8n-nodes-chatwoot/issues"
   },
   "engines": {
     "node": ">=18.0.0"

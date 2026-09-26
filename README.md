@@ -6,7 +6,7 @@
 [![n8n community node](https://img.shields.io/badge/n8n-community%20node-orange)](https://docs.n8n.io/integrations/community-nodes/)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/RenatoAscencio/n8n-nodes-chatwoot/main/nodes/Chatwoot/chatwoot.svg" alt="Chatwoot Logo" width="120">
+  <img src="https://raw.githubusercontent.com/serversmx/n8n-nodes-chatwoot/main/nodes/Chatwoot/chatwoot.svg" alt="Chatwoot Logo" width="120">
 </p>
 
 A comprehensive n8n community node for [Chatwoot](https://www.chatwoot.com/) - the open-source customer engagement platform. Automate your customer support workflows with full access to conversations, messages, contacts, agents, teams, and more.
@@ -391,7 +391,7 @@ Manage saved filters for conversations and contacts.
 
 ### Report
 
-Access analytics and reporting data via Chatwoot's `/api/v2/reports` endpoints. **Now correctly routed through v2** (was broken in v0.3.0–v0.7.x — see [v0.8.0 release notes](https://github.com/RenatoAscencio/n8n-nodes-chatwoot/releases/tag/v0.8.0)).
+Access analytics and reporting data via Chatwoot's `/api/v2/reports` endpoints. **Now correctly routed through v2** (was broken in v0.3.0–v0.7.x — see [v0.8.0 release notes](https://github.com/serversmx/n8n-nodes-chatwoot/releases/tag/v0.8.0)).
 
 | Operation | Description |
 |-----------|-------------|
@@ -978,7 +978,7 @@ This node uses three Chatwoot APIs:
 
 ```bash
 # Clone and setup
-git clone https://github.com/RenatoAscencio/n8n-nodes-chatwoot.git
+git clone https://github.com/serversmx/n8n-nodes-chatwoot.git
 cd n8n-nodes-chatwoot
 npm install
 
@@ -1075,7 +1075,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for release history.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/RenatoAscencio/n8n-nodes-chatwoot/issues)
+- **Issues**: [GitHub Issues](https://github.com/serversmx/n8n-nodes-chatwoot/issues)
 - **Chatwoot Docs**: [chatwoot.com/developers](https://www.chatwoot.com/developers/api/)
 - **n8n Community**: [community.n8n.io](https://community.n8n.io/)
 
