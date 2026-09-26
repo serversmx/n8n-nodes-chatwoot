@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # --ignore-scripts: no native build needed (a transitive devDependency, isolated-vm, may fail to compile)
+      - run: npm ci --ignore-scripts
+
+      # ESLint 8 legacy config (.eslintrc.js): TypeScript style, n8n-nodes-base rules.
+      - run: npm run lint
+
+      # n8n community-node verification lint (@n8n/eslint-plugin-community-nodes, ESLint 9 flat
+      # config): the same static checks n8n's own package verification pipeline runs.
+      - run: npm run lint:n8n
+
+      - run: npm test
+
+      - run: npm run build

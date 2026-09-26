@@ -18,13 +18,13 @@ export const labelOperations: INodeProperties = {
     {
       name: 'Create',
       value: 'create',
-      description: 'Create a new label',
+      description: 'Create a new label (requires an administrator token)',
       action: 'Create a label',
     },
     {
       name: 'Delete',
       value: 'delete',
-      description: 'Delete a label',
+      description: 'Delete a label (requires an administrator token)',
       action: 'Delete a label',
     },
     {
@@ -36,7 +36,7 @@ export const labelOperations: INodeProperties = {
     {
       name: 'Update',
       value: 'update',
-      description: 'Update a label',
+      description: 'Update a label (requires an administrator token)',
       action: 'Update a label',
     },
   ],

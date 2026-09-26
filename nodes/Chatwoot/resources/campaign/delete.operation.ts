@@ -8,6 +8,6 @@ export const deleteOperation: INodeProperties[] = [
     required: true,
     default: 0,
     displayOptions: { show: { resource: ['campaign'], operation: ['delete'] } },
-    description: 'The ID of the campaign to delete',
+    description: 'The ID of the campaign to delete (the "id" returned by Get Many)',
   },
 ];

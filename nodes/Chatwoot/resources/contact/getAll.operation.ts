@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { CONTACT_SORT_OPTIONS } from './utils';
 
 export const getAllOperation: INodeProperties[] = [
   {
@@ -21,7 +22,6 @@ export const getAllOperation: INodeProperties[] = [
     default: 50,
     typeOptions: {
       minValue: 1,
-      maxValue: 100,
     },
     displayOptions: {
       show: {
@@ -30,7 +30,8 @@ export const getAllOperation: INodeProperties[] = [
         returnAll: [false],
       },
     },
-    description: 'Max number of results to return',
+    description:
+      'Max number of results to return. Chatwoot returns 15 contacts per page; the node requests as many pages as needed.',
   },
   {
     displayName: 'Options',
@@ -46,45 +47,31 @@ export const getAllOperation: INodeProperties[] = [
     },
     options: [
       {
+        displayName: 'Include Contact Inboxes',
+        name: 'include_contact_inboxes',
+        type: 'boolean',
+        default: true,
+        description:
+          "Whether to include each contact's inboxes and source IDs (contact_inboxes). Turn off for faster responses on large lists.",
+      },
+      {
+        displayName: 'Labels',
+        name: 'labels',
+        type: 'multiOptions',
+        typeOptions: {
+          loadOptionsMethod: 'getLabels',
+        },
+        default: [],
+        description:
+          'Only return contacts that have at least one of these labels. Choose from the list, or pass label titles with an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+      },
+      {
         displayName: 'Sort By',
         name: 'sort',
         type: 'options',
         default: 'name',
-        options: [
-          {
-            name: 'Email (A-Z)',
-            value: 'email',
-          },
-          {
-            name: 'Email (Z-A)',
-            value: '-email',
-          },
-          {
-            name: 'Last Activity (Newest)',
-            value: '-last_activity_at',
-          },
-          {
-            name: 'Last Activity (Oldest)',
-            value: 'last_activity_at',
-          },
-          {
-            name: 'Name (A-Z)',
-            value: 'name',
-          },
-          {
-            name: 'Name (Z-A)',
-            value: '-name',
-          },
-          {
-            name: 'Phone Number (A-Z)',
-            value: 'phone_number',
-          },
-          {
-            name: 'Phone Number (Z-A)',
-            value: '-phone_number',
-          },
-        ],
-        description: 'Sort contacts by field (prefix with - for descending)',
+        options: CONTACT_SORT_OPTIONS,
+        description: 'Sort contacts by field (prefix with - for descending). Defaults to Created At (Oldest) when omitted. Activity-based sorts can move contacts between pages while Return All runs.',
       },
     ],
   },

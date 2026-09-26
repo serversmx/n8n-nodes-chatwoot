@@ -1,5 +1,8 @@
 import type { INodeProperties } from 'n8n-workflow';
 
+import { SAFE_FETCH_WARNING } from '../inbox/channelSettings';
+import { WEBHOOK_EVENT_OPTIONS } from './events';
+
 export const updateOperation: INodeProperties[] = [
   {
     displayName: 'Webhook ID',
@@ -29,28 +32,37 @@ export const updateOperation: INodeProperties[] = [
     },
     options: [
       {
-        displayName: 'Webhook URL',
-        name: 'url',
+        displayName: 'Inbox Name or ID',
+        name: 'inbox_id',
+        type: 'options',
+        typeOptions: {
+          loadOptionsMethod: 'getInboxes',
+        },
+        default: '',
+        description:
+          'Inbox associated with the webhook (informational: Chatwoot 4.18 still sends events of every inbox). Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+      },
+      {
+        displayName: 'Name',
+        name: 'name',
         type: 'string',
         default: '',
-        description: 'URL where webhook events will be sent',
+        description: 'Name that identifies the webhook in Chatwoot',
       },
       {
         displayName: 'Subscriptions',
         name: 'subscriptions',
         type: 'multiOptions',
-        options: [
-          { name: 'Contact Created', value: 'contact_created' },
-          { name: 'Contact Updated', value: 'contact_updated' },
-          { name: 'Conversation Created', value: 'conversation_created' },
-          { name: 'Conversation Status Changed', value: 'conversation_status_changed' },
-          { name: 'Conversation Updated', value: 'conversation_updated' },
-          { name: 'Message Created', value: 'message_created' },
-          { name: 'Message Updated', value: 'message_updated' },
-          { name: 'Webwidget Triggered', value: 'webwidget_triggered' },
-        ],
+        options: WEBHOOK_EVENT_OPTIONS,
         default: [],
-        description: 'Events that will trigger this webhook',
+        description: 'Events that will trigger this webhook (replaces the current list)',
+      },
+      {
+        displayName: 'Webhook URL',
+        name: 'url',
+        type: 'string',
+        default: '',
+        description: `URL where Chatwoot POSTs the events. ${SAFE_FETCH_WARNING}`,
       },
     ],
   },

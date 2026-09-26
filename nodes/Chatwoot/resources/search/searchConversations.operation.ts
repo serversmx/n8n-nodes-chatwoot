@@ -1,4 +1,5 @@
 import type { INodeProperties } from 'n8n-workflow';
+import { searchFiltersCollection } from './filters';
 
 export const searchConversationsOperation: INodeProperties[] = [
   {
@@ -8,7 +9,7 @@ export const searchConversationsOperation: INodeProperties[] = [
     required: true,
     default: '',
     displayOptions: { show: { resource: ['search'], operation: ['searchConversations'] } },
-    description: 'Search query for conversations',
+    description: 'Text to find in the conversation display ID or in the contact name, email, phone number or identifier',
   },
   {
     displayName: 'Return All',
@@ -27,4 +28,5 @@ export const searchConversationsOperation: INodeProperties[] = [
     displayOptions: { show: { resource: ['search'], operation: ['searchConversations'], returnAll: [false] } },
     description: 'Max number of results to return',
   },
+  searchFiltersCollection('searchConversations', 'last activity'),
 ];

@@ -1,4 +1,10 @@
 import type { INodeProperties } from 'n8n-workflow';
+import {
+  accountCustomAttributesField,
+  accountFeaturesField,
+  accountLimitsField,
+  accountStatusField,
+} from './fields';
 
 export const updateOperation: INodeProperties[] = [
   {
@@ -28,6 +34,7 @@ export const updateOperation: INodeProperties[] = [
       },
     },
     options: [
+      accountCustomAttributesField,
       {
         displayName: 'Domain',
         name: 'domain',
@@ -35,12 +42,14 @@ export const updateOperation: INodeProperties[] = [
         default: '',
         description: 'Domain for the account',
       },
+      accountFeaturesField,
+      accountLimitsField,
       {
         displayName: 'Locale',
         name: 'locale',
         type: 'string',
         default: '',
-        description: 'Locale for the account',
+        description: 'Locale for the account (e.g. en, es, pt_BR)',
       },
       {
         displayName: 'Name',
@@ -49,6 +58,7 @@ export const updateOperation: INodeProperties[] = [
         default: '',
         description: 'Name of the account',
       },
+      accountStatusField,
       {
         displayName: 'Support Email',
         name: 'support_email',

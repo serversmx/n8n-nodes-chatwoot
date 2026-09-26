@@ -10,7 +10,7 @@ export const addLabelsOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['conversation'],
-        operation: ['addLabels'],
+        operation: ['addLabels', 'appendLabels', 'removeLabels'],
       },
     },
     description: 'ID of the conversation',
@@ -27,9 +27,9 @@ export const addLabelsOperation: INodeProperties[] = [
     displayOptions: {
       show: {
         resource: ['conversation'],
-        operation: ['addLabels'],
+        operation: ['addLabels', 'appendLabels', 'removeLabels'],
       },
     },
-    description: 'Labels to set on the conversation (replaces existing labels). Choose from the list, or specify IDs using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
+    description: 'Label titles (not IDs), as an array or comma-separated string. Set Labels replaces all labels (an empty list clears them); Add/Remove Labels keep the other labels and require a non-empty list. Choose from the list or use an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
   },
 ];

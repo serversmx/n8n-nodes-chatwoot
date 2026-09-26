@@ -21,7 +21,7 @@
       },
       "id": "chatwoot-list",
       "name": "Get Open Conversations",
-      "type": "n8n-nodes-chatwoot.chatwoot",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
       "typeVersion": 1,
       "position": [450, 300],
       "credentials": {

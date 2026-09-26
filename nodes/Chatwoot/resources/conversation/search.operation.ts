@@ -13,7 +13,7 @@ export const searchOperation: INodeProperties[] = [
         operation: ['search'],
       },
     },
-    description: 'Search query string',
+    description: 'Text to find in the incoming and outgoing messages of the conversations',
   },
   {
     displayName: 'Return All',

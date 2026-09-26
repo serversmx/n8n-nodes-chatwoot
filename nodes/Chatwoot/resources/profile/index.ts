@@ -17,19 +17,22 @@ export const profileOperations: INodeProperties = {
     {
       name: 'Fetch',
       value: 'fetch',
-      description: 'Get the authenticated user profile',
+      description:
+        'Get the profile of the user that owns the access token (name, email, role and availability per account)',
       action: 'Fetch profile',
     },
     {
       name: 'Set Availability',
       value: 'availability',
-      description: 'Set availability status (online, offline, busy)',
+      description:
+        'Set the availability (online, busy or offline) of the token owner in the account of the credential',
       action: 'Set availability',
     },
     {
       name: 'Update',
       value: 'update',
-      description: 'Update the authenticated user profile',
+      description:
+        'Update the profile of the user that owns the access token (name, display name, email, signature, availability)',
       action: 'Update profile',
     },
   ],

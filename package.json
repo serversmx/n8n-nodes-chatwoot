@@ -1,6 +1,6 @@
 {
   "name": "@renatoascencio/n8n-nodes-chatwoot",
-  "version": "0.8.3",
+  "version": "0.9.0",
   "publishConfig": {
     "access": "public"
   },
@@ -16,17 +16,17 @@
     "crm"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/RenatoAscencio/n8n-nodes-chatwoot",
+  "homepage": "https://github.com/serversmx/n8n-nodes-chatwoot",
   "author": {
     "name": "Renato Ascencio",
     "email": "renato_ascencio@hotmail.com"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RenatoAscencio/n8n-nodes-chatwoot.git"
+    "url": "git+https://github.com/serversmx/n8n-nodes-chatwoot.git"
   },
   "bugs": {
-    "url": "https://github.com/RenatoAscencio/n8n-nodes-chatwoot/issues"
+    "url": "https://github.com/serversmx/n8n-nodes-chatwoot/issues"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -35,17 +35,18 @@
   "scripts": {
     "build": "tsc && npm run copy:icons",
     "build:watch": "tsc --watch",
-    "copy:icons": "cp nodes/Chatwoot/*.svg nodes/Chatwoot/*.node.json dist/nodes/Chatwoot/ 2>/dev/null || true",
+    "copy:icons": "mkdir -p dist/nodes/Chatwoot && cp nodes/Chatwoot/*.svg nodes/Chatwoot/*.node.json dist/nodes/Chatwoot/",
     "dev": "npm run build:watch",
-    "lint": "eslint . --ext .ts",
-    "lint:fix": "eslint . --ext .ts --fix",
+    "lint": "cross-env ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts",
+    "lint:fix": "cross-env ESLINT_USE_FLAT_CONFIG=false eslint . --ext .ts --fix",
+    "lint:n8n": "eslint --config eslint.n8n.config.mjs nodes credentials package.json",
     "format": "prettier --write \"**/*.ts\"",
     "format:check": "prettier --check \"**/*.ts\"",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "prepublishOnly": "npm run build",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist .tsbuildinfo"
   },
   "files": [
     "dist"
@@ -63,11 +64,13 @@
     ]
   },
   "devDependencies": {
+    "@n8n/eslint-plugin-community-nodes": "^0.34.0",
     "@types/jest": "^29.5.12",
     "@types/node": "^20.11.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
-    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^8.70.0",
+    "@typescript-eslint/parser": "^8.70.0",
+    "cross-env": "^7.0.3",
+    "eslint": "9.29.0",
     "eslint-config-prettier": "^9.1.0",
     "eslint-plugin-n8n-nodes-base": "^1.16.1",
     "jest": "^29.7.0",
@@ -76,6 +79,6 @@
     "typescript": "^5.3.3"
   },
   "peerDependencies": {
-    "n8n-workflow": ">=1.0.0"
+    "n8n-workflow": "*"
   }
 }

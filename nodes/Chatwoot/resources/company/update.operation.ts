@@ -19,6 +19,22 @@ export const updateOperation: INodeProperties[] = [
     displayOptions: { show: { resource: ['company'], operation: ['update'] } },
     options: [
       {
+        displayName: 'Additional Attributes (JSON)',
+        name: 'additional_attributes',
+        type: 'json',
+        default: '{}',
+        description:
+          "Free-form attributes stored on the company as a JSON object (not returned by Chatwoot's company views). Requires Chatwoot 4.14+.",
+      },
+      {
+        displayName: 'Custom Attributes (JSON)',
+        name: 'custom_attributes',
+        type: 'json',
+        default: '{}',
+        description:
+          'Custom attributes to set, merged into the existing ones (other keys are kept), e.g. {"plan": "enterprise", "seats": 25}. Keys should match company custom attribute definitions. Requires Chatwoot 4.14+.',
+      },
+      {
         displayName: 'Name',
         name: 'name',
         type: 'string',

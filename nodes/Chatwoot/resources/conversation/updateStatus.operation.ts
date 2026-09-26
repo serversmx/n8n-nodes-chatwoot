@@ -31,7 +31,7 @@ export const updateStatusOperation: INodeProperties[] = [
       {
         name: 'Open',
         value: 'open',
-        description: 'Mark conversation as active',
+        description: 'Open the conversation. An agent-role token assigns it to the token owner; on Chatwoot 4.17.1 and later any user token also removes the agent bot or Captain assignee.',
       },
       {
         name: 'Pending',
@@ -63,6 +63,7 @@ export const updateStatusOperation: INodeProperties[] = [
         status: ['snoozed'],
       },
     },
-    description: 'When to unsnooze the conversation (required when status is snoozed)',
+    description:
+      'When to reopen the snoozed conversation. Leave empty to keep it snoozed until the contact replies (a new incoming message always reopens it).',
   },
 ];

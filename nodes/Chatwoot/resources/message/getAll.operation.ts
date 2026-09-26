@@ -44,6 +44,42 @@ export const getAllOperation: INodeProperties[] = [
         returnAll: [false],
       },
     },
-    description: 'Max number of messages to return',
+    description: 'Max number of messages to return. With After Message ID, returns the oldest matching messages so the next run can continue from the last returned ID. Otherwise returns the most recent messages, oldest first.',
+  },
+  {
+    displayName: 'Options',
+    name: 'options',
+    type: 'collection',
+    placeholder: 'Add Option',
+    default: {},
+    displayOptions: {
+      show: {
+        resource: ['message'],
+        operation: ['getAll'],
+      },
+    },
+    options: [
+      {
+        displayName: 'After Message ID',
+        name: 'after',
+        type: 'number',
+        default: 0,
+        description: 'Only return messages newer than this message ID, starting with the oldest match. Use the last returned ID for the next incremental run.',
+      },
+      {
+        displayName: 'Before Message ID',
+        name: 'before',
+        type: 'number',
+        default: 0,
+        description: 'Only return messages older than this message ID',
+      },
+      {
+        displayName: 'Exclude Private Notes and Activity',
+        name: 'filter_internal_messages',
+        type: 'boolean',
+        default: false,
+        description: 'Whether to leave out private notes and activity messages (status changes, assignments...), keeping only the messages exchanged with the contact',
+      },
+    ],
   },
 ];

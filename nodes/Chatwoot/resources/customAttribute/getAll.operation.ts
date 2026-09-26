@@ -8,6 +8,12 @@ export const getAllOperation: INodeProperties[] = [
     required: true,
     options: [
       {
+        name: 'Company Attribute',
+        value: 'company_attribute',
+        description:
+          'Custom attributes for companies (requires Chatwoot 4.14+; companies are an Enterprise feature)',
+      },
+      {
         name: 'Contact Attribute',
         value: 'contact_attribute',
         description: 'Custom attributes for contacts',

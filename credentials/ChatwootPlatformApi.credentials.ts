@@ -2,12 +2,14 @@ import type {
   IAuthenticateGeneric,
   ICredentialTestRequest,
   ICredentialType,
+  Icon,
   INodeProperties,
 } from 'n8n-workflow';
 
 export class ChatwootPlatformApi implements ICredentialType {
   name = 'chatwootPlatformApi';
   displayName = 'Chatwoot Platform API';
+  icon: Icon = { light: 'file:../nodes/Chatwoot/chatwoot.svg', dark: 'file:../nodes/Chatwoot/chatwoot.svg' };
   documentationUrl = 'https://www.chatwoot.com/developers/api/#tag/Platform';
   properties: INodeProperties[] = [
     {
@@ -29,7 +31,7 @@ export class ChatwootPlatformApi implements ICredentialType {
       },
       default: '',
       description:
-        'Your Platform API Access Token. This is a super admin token with access to platform-level operations like creating accounts and users. Found in the installation config or super admin panel.',
+        'Access token of a Platform App. Create the app in the Super Admin console (/super_admin → Platform Apps; self-hosted installations only) and copy its access token. A Platform App can only manage the accounts, users and agent bots it created itself (other IDs answer 401 "Non permissible resource").',
       required: true,
     },
   ];
@@ -43,6 +45,8 @@ export class ChatwootPlatformApi implements ICredentialType {
     },
   };
 
+  // GET /platform/api/v1/agent_bots only lists the bots of this Platform App: no side effects, and it
+  // answers 401 "Invalid access_token" for anything that is not a Platform App token.
   test: ICredentialTestRequest = {
     request: {
       baseURL: '={{$credentials.baseUrl.replace(/\\/$/, "")}}',

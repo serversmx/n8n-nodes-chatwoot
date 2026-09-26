@@ -1,5 +1,5 @@
 {
-	"node": "n8n-nodes-base.chatwootTrigger",
+	"node": "n8n-nodes-chatwoot.chatwootTrigger",
 	"nodeVersion": "1.0",
 	"codexVersion": "1.0",
 	"categories": ["Communication"],
@@ -15,7 +15,7 @@
 			}
 		]
 	},
-	"alias": ["chat", "webhook", "event", "customer support", "live chat"],
+	"alias": ["chat", "webhook", "event", "customer support", "live chat", "agent bot", "api channel", "whatsapp"],
 	"subcategories": {
 		"Communication": ["Live Chat"]
 	}

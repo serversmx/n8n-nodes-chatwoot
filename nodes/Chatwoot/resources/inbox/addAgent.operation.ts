@@ -27,6 +27,8 @@ export const addAgentOperation: INodeProperties[] = [
         operation: ['addAgent'],
       },
     },
-    description: 'Comma-separated list of user IDs to add to the inbox',
+    placeholder: '1, 2',
+    description:
+      'Comma-separated list of agent (user) IDs to add to the inbox. Existing members are kept.',
   },
 ];

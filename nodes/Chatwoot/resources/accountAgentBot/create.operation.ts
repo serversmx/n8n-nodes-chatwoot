@@ -13,7 +13,8 @@ export const createOperation: INodeProperties[] = [
         operation: ['create'],
       },
     },
-    description: 'ID of the account',
+    description:
+      'Account the bot belongs to (sent as account_id). Use 0 to create a global bot without an account: Chatwoot offers global bots to every account of the installation.',
   },
   {
     displayName: 'Bot Name',
@@ -43,6 +44,14 @@ export const createOperation: INodeProperties[] = [
     },
     options: [
       {
+        displayName: 'Avatar URL',
+        name: 'avatar_url',
+        type: 'string',
+        default: '',
+        description:
+          'Public URL of an image to use as the bot avatar. Chatwoot downloads it in the background, so it is not part of the response.',
+      },
+      {
         displayName: 'Description',
         name: 'description',
         type: 'string',
@@ -54,7 +63,8 @@ export const createOperation: INodeProperties[] = [
         name: 'outgoing_url',
         type: 'string',
         default: '',
-        description: 'Webhook URL for the agent bot',
+        description:
+          'Webhook URL that receives the events of the inboxes connected to this bot (e.g. an n8n Webhook node URL)',
       },
     ],
   },

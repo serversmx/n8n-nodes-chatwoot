@@ -13,7 +13,8 @@ export const createOperation: INodeProperties[] = [
         operation: ['create'],
       },
     },
-    description: 'Title of the label (e.g., "urgent", "vip", "bug")',
+    description:
+      'Title of the label (e.g., "urgent", "vip", "bug"). Chatwoot stores it in lowercase; letters, numbers, "-" and "_" only.',
   },
   {
     displayName: 'Additional Fields',

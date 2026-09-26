@@ -27,6 +27,7 @@ export const transcriptOperation: INodeProperties[] = [
         operation: ['transcript'],
       },
     },
-    description: 'Email address to send the transcript to',
+    description:
+      'Email address to send the transcript to. Requires the email transcript feature of the plan; Chatwoot answers 429 when the account exceeded its daily email quota.',
   },
 ];

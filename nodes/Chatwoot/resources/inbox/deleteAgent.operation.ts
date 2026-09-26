@@ -27,6 +27,7 @@ export const deleteAgentOperation: INodeProperties[] = [
         operation: ['deleteAgent'],
       },
     },
-    description: 'Comma-separated list of user IDs to remove from the inbox',
+    placeholder: '1, 2',
+    description: 'Comma-separated list of agent (user) IDs to remove from the inbox',
   },
 ];

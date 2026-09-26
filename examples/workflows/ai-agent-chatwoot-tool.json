@@ -1,0 +1,184 @@
+{
+  "name": "Chatwoot · AI support agent (Chatwoot as a tool)",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "de0626b0-6edf-5e94-8fa5-b7e76844dff6",
+      "name": "When chat message received",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "f10f0273-1ddd-5905-8ec4-3c531f9829e7"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are the support assistant of Acme Store. Use the Chatwoot tools to look up conversations, add labels and reply to customers. Answer in the customer's language."
+        }
+      },
+      "id": "736b7f41-1573-5c8a-9e83-a2fe405aad2a",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "076b4fc3-2a52-509b-b292-29ab0d1f7315",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        140,
+        220
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL_ID",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "returnAll": false,
+        "limit": 10,
+        "filters": {
+          "status": "={{ $fromAI('status', 'open, pending, resolved or all', 'string') }}"
+        }
+      },
+      "id": "06ec8efe-dc81-5066-aaba-8e1beaa6049c",
+      "name": "Find conversations",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwootTool",
+      "typeVersion": 1,
+      "position": [
+        340,
+        220
+      ],
+      "credentials": {
+        "chatwootApi": {
+          "id": "CHATWOOT_CREDENTIAL_ID",
+          "name": "Chatwoot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendLabels",
+        "conversationId": "={{ $fromAI('conversationId', 'Chatwoot conversation ID', 'number') }}",
+        "labels": "={{ $fromAI('labels', 'Label titles to add', 'json') }}"
+      },
+      "id": "a8d1fe62-7622-5748-8f1f-23db3f2cc0e7",
+      "name": "Add labels",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwootTool",
+      "typeVersion": 1,
+      "position": [
+        520,
+        220
+      ],
+      "credentials": {
+        "chatwootApi": {
+          "id": "CHATWOOT_CREDENTIAL_ID",
+          "name": "Chatwoot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "conversationId": "={{ $fromAI('conversationId', 'Chatwoot conversation ID', 'number') }}",
+        "content": "={{ $fromAI('content', 'Reply text for the customer', 'string') }}"
+      },
+      "id": "b2607a20-68d5-5025-8bb1-1ea93a5851ed",
+      "name": "Reply to customer",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwootTool",
+      "typeVersion": 1,
+      "position": [
+        700,
+        220
+      ],
+      "credentials": {
+        "chatwootApi": {
+          "id": "CHATWOOT_CREDENTIAL_ID",
+          "name": "Chatwoot account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find conversations": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add labels": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply to customer": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -31,6 +31,20 @@ export const toggleTypingOperation: INodeProperties[] = [
         operation: ['toggleTyping'],
       },
     },
-    description: 'Whether to show or hide the typing indicator',
+    description:
+      'Whether to show or hide the typing indicator. Chatwoot shows it in the dashboard and website widget and sends conversation_typing_on/off webhooks to API inboxes. Evolution API (WhatsApp) inboxes ignore those events: to show "typing..." in WhatsApp, call Evolution\'s sendPresence endpoint instead.',
+  },
+  {
+    displayName: 'Private (Note)',
+    name: 'isPrivate',
+    type: 'boolean',
+    default: false,
+    displayOptions: {
+      show: {
+        resource: ['conversation'],
+        operation: ['toggleTyping'],
+      },
+    },
+    description: 'Whether the typing is for a private note, so only agents see the indicator',
   },
 ];

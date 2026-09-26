@@ -18,7 +18,8 @@ export const cannedResponseOperations: INodeProperties = {
     {
       name: 'Create',
       value: 'create',
-      description: 'Create a new canned response',
+      description:
+        'Create a canned response (a saved reply agents insert with /short_code). The short code must be unique in the account.',
       action: 'Create a canned response',
     },
     {
@@ -30,13 +31,13 @@ export const cannedResponseOperations: INodeProperties = {
     {
       name: 'Get Many',
       value: 'getAll',
-      description: 'Get all canned responses',
+      description: 'Get the canned responses of the account, optionally filtered by a search text',
       action: 'Get all canned responses',
     },
     {
       name: 'Update',
       value: 'update',
-      description: 'Update a canned response',
+      description: 'Change the short code and/or content of a canned response',
       action: 'Update a canned response',
     },
   ],

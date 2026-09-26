@@ -2,7 +2,7 @@ import type { INodeProperties } from 'n8n-workflow';
 
 export const listCategoriesOperation: INodeProperties[] = [
   {
-    displayName: 'Portal Slug or ID',
+    displayName: 'Portal Slug',
     name: 'portalSlug',
     type: 'string',
     required: true,
@@ -13,7 +13,7 @@ export const listCategoriesOperation: INodeProperties[] = [
         operation: ['listCategories'],
       },
     },
-    description: 'The slug or ID of the portal',
+    description: 'Slug of the portal (Chatwoot looks portals up by slug, not by ID)',
   },
   {
     displayName: 'Locale',
@@ -26,6 +26,6 @@ export const listCategoriesOperation: INodeProperties[] = [
         operation: ['listCategories'],
       },
     },
-    description: 'The locale for categories (e.g., en, es, fr)',
+    description: 'Only categories of this locale (e.g. en, es). Leave empty for all locales.',
   },
 ];
