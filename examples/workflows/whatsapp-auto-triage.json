@@ -1,0 +1,221 @@
+{
+  "name": "Chatwoot · WhatsApp auto-triage",
+  "nodes": [
+    {
+      "parameters": {
+        "events": [
+          "message_created"
+        ],
+        "filters": {
+          "messageTypes": [
+            "incoming"
+          ],
+          "privateNotes": "exclude",
+          "ignoreWhatsAppEchoes": true
+        },
+        "options": {
+          "verifySignature": true
+        }
+      },
+      "id": "6f39dfdf-36e3-564c-911d-cde5fce96dbe",
+      "name": "Chatwoot Trigger",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwootTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "credentials": {
+        "chatwootApi": {
+          "id": "CHATWOOT_CREDENTIAL_ID",
+          "name": "Chatwoot account"
+        }
+      },
+      "webhookId": "0d13b0e2-a397-5699-abc6-f81a67eb6d70"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "be94a33b-aaa4-56db-9d7e-d5e3d90348f8",
+              "leftValue": "={{ $json.content }}",
+              "rightValue": "precio",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "ignoreCase": true
+        }
+      },
+      "id": "27a46fc4-1dc2-5390-bf44-1c2aa9f51585",
+      "name": "Asks for prices?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendLabels",
+        "conversationId": "={{ $json.conversation.id }}",
+        "labels": "={{ [\"ventas\"] }}"
+      },
+      "id": "4faa681d-f630-51a4-bb77-93f1acf4fd68",
+      "name": "Label as Sales",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -100
+      ],
+      "credentials": {
+        "chatwootApi": {
+          "id": "CHATWOOT_CREDENTIAL_ID",
+          "name": "Chatwoot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "conversationId": "={{ $('Chatwoot Trigger').item.json.conversation.id }}",
+        "content": "=¡Hola {{ $('Chatwoot Trigger').item.json.sender.name.split(' ')[0] }}! 👋 Aquí tienes nuestra lista de precios: https://acme.example/precios"
+      },
+      "id": "f1a4ada5-b1ac-56c0-8782-b5701ef480a2",
+      "name": "Send price list",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
+      "typeVersion": 1,
+      "position": [
+        760,
+        -100
+      ],
+      "credentials": {
+        "chatwootApi": {
+          "id": "CHATWOOT_CREDENTIAL_ID",
+          "name": "Chatwoot account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Chatwoot Trigger": {
+      "main": [
+        [
+          {
+            "node": "Asks for prices?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Asks for prices?": {
+      "main": [
+        [
+          {
+            "node": "Label as Sales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label as Sales": {
+      "main": [
+        [
+          {
+            "node": "Send price list",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Chatwoot Trigger": [
+      {
+        "json": {
+          "event": "message_created",
+          "id": 48213,
+          "content": "Hola, ¿cuál es el precio del plan anual?",
+          "message_type": "incoming",
+          "content_type": "text",
+          "private": false,
+          "created_at": "2026-09-26T15:04:12.000Z",
+          "source_id": "WAID:3EB0C6D1F2A4B5C6D7E8",
+          "sender": {
+            "id": 1187,
+            "name": "María López",
+            "phone_number": "+5215512345678",
+            "identifier": "5215512345678@s.whatsapp.net",
+            "type": "contact"
+          },
+          "conversation": {
+            "id": 942,
+            "display_id": 942,
+            "inbox_id": 3,
+            "status": "open",
+            "channel": "Channel::Api"
+          },
+          "inbox": {
+            "id": 3,
+            "name": "WhatsApp Ventas"
+          },
+          "account": {
+            "id": 1,
+            "name": "Acme Store"
+          },
+          "signatureVerified": true
+        }
+      }
+    ],
+    "Label as Sales": [
+      {
+        "json": {
+          "payload": [
+            "ventas",
+            "whatsapp"
+          ]
+        }
+      }
+    ],
+    "Send price list": [
+      {
+        "json": {
+          "id": 48214,
+          "content": "¡Hola María! 👋 Aquí tienes nuestra lista de precios: https://acme.example/precios",
+          "message_type": 1,
+          "content_type": "text",
+          "private": false,
+          "status": "sent",
+          "conversation_id": 942,
+          "inbox_id": 3,
+          "created_at": 1790435053,
+          "sender": {
+            "id": 5,
+            "name": "Acme Bot",
+            "type": "user"
+          }
+        }
+      }
+    ]
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

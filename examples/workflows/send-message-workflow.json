@@ -22,7 +22,7 @@
       },
       "id": "chatwoot-send",
       "name": "Send Message",
-      "type": "n8n-nodes-chatwoot.chatwoot",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
       "typeVersion": 1,
       "position": [450, 300],
       "credentials": {
@@ -41,7 +41,7 @@
       },
       "id": "chatwoot-status",
       "name": "Set Status to Pending",
-      "type": "n8n-nodes-chatwoot.chatwoot",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
       "typeVersion": 1,
       "position": [650, 300],
       "credentials": {

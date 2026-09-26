@@ -1,0 +1,115 @@
+{
+  "name": "Chatwoot · Daily account summary",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "f51a281f-c2e5-5f99-822c-bd8d342a29ed",
+      "name": "Every morning",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "report",
+        "operation": "accountSummary",
+        "since": "={{ $now.minus({ days: 1 }).startOf('day').toISO() }}",
+        "until": "={{ $now.startOf('day').toISO() }}"
+      },
+      "id": "77b0030b-54cb-57d7-8332-cd7a8f32de64",
+      "name": "Account summary (yesterday)",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
+      "typeVersion": 1,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "chatwootApi": {
+          "id": "CHATWOOT_CREDENTIAL_ID",
+          "name": "Chatwoot account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e2ddf587-1875-5197-9f0e-81d68e51768e",
+              "name": "summary",
+              "type": "string",
+              "value": "=Yesterday: {{ $json.conversations_count }} conversations, {{ $json.resolutions_count }} resolved, first response {{ Math.round($json.avg_first_response_time / 60) }} min on average."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bc41b743-dbc0-5e11-979e-c48a78637a15",
+      "name": "Format message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Every morning": {
+      "main": [
+        [
+          {
+            "node": "Account summary (yesterday)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Account summary (yesterday)": {
+      "main": [
+        [
+          {
+            "node": "Format message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {
+    "Account summary (yesterday)": [
+      {
+        "json": {
+          "conversations_count": 312,
+          "incoming_messages_count": 1894,
+          "outgoing_messages_count": 1702,
+          "avg_first_response_time": 184.6,
+          "avg_resolution_time": 5210.3,
+          "resolutions_count": 287,
+          "reply_time": 142.9,
+          "previous": {
+            "conversations_count": 276,
+            "resolutions_count": 251
+          }
+        }
+      }
+    ]
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

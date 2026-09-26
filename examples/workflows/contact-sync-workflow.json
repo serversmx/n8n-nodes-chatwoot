@@ -19,7 +19,7 @@
       },
       "id": "chatwoot-search",
       "name": "Search Contact by Email",
-      "type": "n8n-nodes-chatwoot.chatwoot",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
       "typeVersion": 1,
       "position": [450, 300],
       "credentials": {
@@ -58,7 +58,7 @@
       },
       "id": "chatwoot-update",
       "name": "Update Contact",
-      "type": "n8n-nodes-chatwoot.chatwoot",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
       "typeVersion": 1,
       "position": [850, 200],
       "credentials": {
@@ -81,7 +81,7 @@
       },
       "id": "chatwoot-create",
       "name": "Create New Contact",
-      "type": "n8n-nodes-chatwoot.chatwoot",
+      "type": "@renatoascencio/n8n-nodes-chatwoot.chatwoot",
       "typeVersion": 1,
       "position": [850, 400],
       "credentials": {

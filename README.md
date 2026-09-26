@@ -31,10 +31,27 @@ A comprehensive n8n community node for [Chatwoot](https://www.chatwoot.com/) - t
 - **Help Center** - Manage portals, categories, and articles
 - **Detailed Error Messages** - Chatwoot's own error message and description, not a generic one
 
+## Screenshots
+
+Taken in n8n 2.40.7 with the example workflows in [`examples/workflows`](examples/workflows) (sample data is fictional and pinned, so you can open them without a Chatwoot server).
+
+**WhatsApp auto-triage** — the trigger filters incoming messages, then the node labels the conversation and replies:
+
+![WhatsApp auto-triage workflow](assets/screenshots/workflow-whatsapp-auto-triage.png)
+
+| Chatwoot Trigger: events, filters and signature verification | Message › Create with the pinned output |
+|---|---|
+| ![Chatwoot Trigger parameters](assets/screenshots/trigger-signature-filters.png) | ![Message create](assets/screenshots/message-create.png) |
+
+| AI Agent with Chatwoot tools (`$fromAI`) | Report › Account Summary |
+|---|---|
+| ![AI Agent using Chatwoot tools](assets/screenshots/workflow-ai-agent-tools.png) | ![Account summary report](assets/screenshots/report-account-summary.png) |
+
 ---
 
 ## Table of Contents
 
+- [Screenshots](#screenshots)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Nodes](#nodes)
@@ -821,6 +838,19 @@ Version-specific behavior worth knowing about:
 ---
 
 ## Usage Examples
+
+### Ready-to-import workflows
+
+Download a file from [`examples/workflows`](examples/workflows) and import it in n8n (**Workflows → Import from File**), then select your own credentials in each node.
+
+| File | What it does |
+|---|---|
+| [`whatsapp-auto-triage.json`](examples/workflows/whatsapp-auto-triage.json) | Chatwoot Trigger (incoming messages only, signature verified) → IF the customer asks for prices → append the `ventas` label → reply with the price list |
+| [`ai-agent-chatwoot-tool.json`](examples/workflows/ai-agent-chatwoot-tool.json) | AI Agent that uses the Chatwoot node as three tools (find conversations, add labels, reply) with `$fromAI()` parameters |
+| [`daily-account-summary.json`](examples/workflows/daily-account-summary.json) | Every morning, fetch yesterday's Account Summary report and format a one-line summary |
+| [`basic-conversation-workflow.json`](examples/workflows/basic-conversation-workflow.json) | List open conversations |
+| [`contact-sync-workflow.json`](examples/workflows/contact-sync-workflow.json) | Search a contact by email, then update it or create it |
+| [`send-message-workflow.json`](examples/workflows/send-message-workflow.json) | Send a message and set the conversation to pending |
 
 ### Auto-Reply to New Conversations
 

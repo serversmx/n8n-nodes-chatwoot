@@ -81,6 +81,7 @@ see the audit report for the complete, per-finding list.
 
 ### Added
 
+- **Example workflows and screenshots**: importable workflows in `examples/workflows` (with pinned sample data) and README screenshots taken in n8n 2.40.7.
 - **HMAC signature verification** for the Chatwoot Trigger (`X-Chatwoot-Signature`,
   `X-Chatwoot-Timestamp`), on by default (see Changed below).
 - **Agent Bot / API Channel trigger mode**: a new **Source** option lets the trigger verify
